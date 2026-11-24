@@ -106,13 +106,19 @@ final class CarViewModel {
         guard let control = command.bleControl else {
             throw BleError.notConnected
         }
-        let confirmed = try await ble.send(control)
-        if confirmed { WidgetCenter.shared.reloadAllTimelines() }
-        return confirmed
+        try await ble.send(control)
+        WidgetCenter.shared.reloadAllTimelines()
+        return true
     }
 }
 
-/// 蓝牙未就绪时的错误。
-struct BleError: LocalizedError {
-    var errorDescription: String? { "蓝牙未连接到车辆。请靠近车辆后重试，或在蓝牙钥匙页查看状态。" }
+/// 蓝牙错误。
+enum BleError: LocalizedError {
+    case notConnected
+
+    var errorDescription: String? {
+        switch self {
+        case .notConnected: return "蓝牙未连接到车辆。请靠近车辆后重试，或在蓝牙钥匙页查看状态。"
+        }
+    }
 }

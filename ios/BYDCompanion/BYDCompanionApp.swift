@@ -59,8 +59,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         link.note("点击了未锁提醒通知的上锁按钮")
         Task { @MainActor in
             do {
-                let confirmed = try await link.send(.lock)
-                CarNotifications.post(confirmed ? "已上锁。" : "已发送上锁指令，但车辆未确认。请检查车辆。")
+                try await link.send(.lock)
+                CarNotifications.post("已上锁。")
             } catch {
                 CarNotifications.post("蓝牙上锁失败：蓝牙未连接到车辆。")
             }

@@ -111,7 +111,6 @@ final class AutoLock {
 
     init(link: BleCarLink, cachedStatus: @escaping () -> CarStatus?, otherPhoneLeads: @escaping () -> Bool = { false }) {
         self.link = link
-        self.api = api
         self.cachedStatus = cachedStatus
         self.otherPhoneLeads = otherPhoneLeads
         isOn = defaults.bool(forKey: Keys.wanted)
@@ -365,8 +364,7 @@ final class AutoLock {
         }
         Task {
             defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
-            var status = await fetchStatus(refresh: true, timeout: Self.refreshTimeout)
-            if status == nil { status = await fetchStatus() }
+            let status = cachedStatus()
             guard link.state != .ready else {
                 link.note("Auto-lock: reconnected to the car; skipping the left-unlocked check")
                 return
