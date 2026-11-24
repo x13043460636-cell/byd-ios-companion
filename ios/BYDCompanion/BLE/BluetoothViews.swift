@@ -349,7 +349,8 @@ struct ManualKeyEntry: View {
 extension BluetoothSheet {
     @ViewBuilder
     private var provisioningSection: some View {
-        Section("扫码配对（推荐）") {
+        Section {
+
             if case .showingQR = provisioning.phase {
                 if let image = provisioning.qrImage {
                     HStack {
@@ -378,6 +379,8 @@ extension BluetoothSheet {
             } else {
                 Button("开始扫码配对") { startProvisioning() }
             }
+        } header: {
+            Text("扫码配对（推荐）")
         } footer: {
             Text("配对成功后 dkey/钥匙编号/VIN/MAC 会自动导入，无需手动填写。下方手动导入仅作为备用。")
         }

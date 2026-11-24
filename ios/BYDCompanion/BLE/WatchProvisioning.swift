@@ -190,7 +190,7 @@ final class WatchProvisioning {
 
     private func unlogin(_ endpoint: String, inner: [String: String]) async throws -> [String: Any] {
         let ts = inner["timeStamp"] ?? nowMS()
-        let encry = try aesEncryptHex(compactJSON(inner.sortedDict), keyHex: md5Hex(countryCode))
+        let encry = try aesEncryptHex(compactJSON(inner), keyHex: md5Hex(countryCode))
         var signed = inner
         signed.merge(commonOuter(ts)) { a, _ in a }
         signed["identifier"] = countryCode
@@ -211,7 +211,7 @@ final class WatchProvisioning {
                      "deviceType": "0",
                      "networkType": "wifi"]
         inner.merge(extra) { a, _ in a }
-        let encry = try aesEncryptHex(compactJSON(inner.sortedDict), keyHex: md5Hex(encryToken))
+        let encry = try aesEncryptHex(compactJSON(inner), keyHex: md5Hex(encryToken))
         let identifier = (token["identifier"] as? String) ?? (token["userId"] as? String) ?? countryCode
         let userType = token["userType"] as? String ?? ""
         var signed = inner
@@ -286,11 +286,9 @@ final class WatchProvisioning {
                 // 3. 二维码内容
                 let plain = "watchImei=\(imei)&uuid=\(uuid)&countryCode=\(countryCode)"
                 let qrContent = "watchQRCode://" + (try aesEncryptHex(plain, keyHex: md5Hex("watch.bydautolink")))
-                await MainActor.run {
-                    qrImage = self.makeQRImage(qrContent)
-                    phase = .showingQR
-                    self.note("二维码已生成，请用官方比亚迪 App 扫码并确认")
-                }
+                self.qrImage = self.makeQRImage(qrContent)
+                self.phase = .showingQR
+                self.note("二维码已生成，请用官方比亚迪 App 扫码并确认")
                 // 4. 轮询授权状态（最长 5 分钟）
                 var approved = false
                 let deadline = Date().addingTimeInterval(300)
