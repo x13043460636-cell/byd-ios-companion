@@ -66,7 +66,7 @@ struct HomeView: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Battery").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    Text("电量").font(.system(size: 13)).foregroundStyle(Theme.muted)
                     (Text("\(Int((s.batteryPercent ?? 0).rounded()))")
                         .font(.system(size: 64, weight: .bold))
                         .foregroundColor(Theme.text)
@@ -74,11 +74,11 @@ struct HomeView: View {
                 }
                 .opacity(dim)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Total range").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    Text("总续航").font(.system(size: 13)).foregroundStyle(Theme.muted)
                     (Text("\(Int((s.rangeTotalKm ?? 0).rounded())) ")
                         .font(.system(size: 28, weight: .semibold))
                         .foregroundColor(Theme.text)
-                        + Text("km").font(.system(size: 15)).foregroundColor(Theme.muted))
+                        + Text("公里").font(.system(size: 15)).foregroundColor(Theme.muted))
                 }
                 .opacity(dim)
                 statusPill(s)
@@ -155,7 +155,7 @@ struct HomeView: View {
         if model.isRefreshing && (model.stale || model.readingCar) {
             chip {
                 ProgressView().controlSize(.mini).tint(Theme.text)
-                Text("Reading your car…")
+                Text("正在读取车辆状态…")
                     .font(.system(size: 12))
                     .foregroundStyle(Color(hex: 0xC9D1D9))
             }

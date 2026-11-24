@@ -25,15 +25,15 @@ struct TripsCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Trips this month")
+        .accessibilityLabel("本月行程")
         .accessibilityHint("Shows the trip log")
     }
 
     private var empty: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Trips").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)
-                Text("No logged trip yet").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                Text("行程").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)
+                Text("还没有行程记录").font(.system(size: 13)).foregroundStyle(Theme.muted)
             }
             Spacer()
             chevron
@@ -43,7 +43,7 @@ struct TripsCard: View {
     private func summary(_ totals: TripTotals) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Trips this month").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                Text("本月行程").font(.system(size: 13)).foregroundStyle(Theme.muted)
                 Spacer()
                 if let drivingSince {
                     HStack(spacing: 6) {
@@ -159,7 +159,7 @@ struct TripsSheet: View {
                             Text("Driving since \(open.startAt.formatted(date: .omitted, time: .shortened))")
                                 .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)
                             Spacer()
-                            Text("waiting for the car's report").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                            Text("等待车辆上报").font(.system(size: 12)).foregroundStyle(Theme.muted)
                         }
                         .listRowBackground(Theme.card)
                     }
@@ -173,13 +173,13 @@ struct TripsSheet: View {
                                 NavigationLink(value: trip.id) { TripRow(trip: trip, charge: store.charge(after: trip), settings: store.settings) }
                                     .listRowBackground(Theme.card)
                                     .swipeActions(edge: .trailing) {
-                                        Button(role: .destructive) { pendingDelete = trip } label: { Label("Delete", systemImage: "trash") }
+                                        Button(role: .destructive) { pendingDelete = trip } label: { Label("删除", systemImage: "trash") }
                                     }
                             case .charge(let charge):
                                 Button { editingCharge = charge } label: { ChargeRow(charge: charge, settings: store.settings) }
                                     .listRowBackground(Theme.card)
                                     .swipeActions(edge: .trailing) {
-                                        Button(role: .destructive) { pendingChargeDelete = charge } label: { Label("Delete", systemImage: "trash") }
+                                        Button(role: .destructive) { pendingChargeDelete = charge } label: { Label("删除", systemImage: "trash") }
                                     }
                             }
                         }
@@ -191,7 +191,7 @@ struct TripsSheet: View {
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Theme.background)
-            .navigationTitle("Trips")
+            .navigationTitle("行程")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: String.self) { id in
                 if let trip = store.trips.first(where: { $0.id == id }) {
@@ -199,26 +199,26 @@ struct TripsSheet: View {
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
                 ToolbarItem(placement: .primaryAction) {
                     NavigationLink { TripSettingsView(store: store, logger: logger) } label: {
-                        Image(systemName: "gearshape").accessibilityLabel("Trip settings")
+                        Image(systemName: "gearshape").accessibilityLabel("行程设置")
                     }
                 }
             }
             .confirmationDialog("Delete this trip?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible) {
-                Button("Delete trip", role: .destructive) {
+                Button("删除行程", role: .destructive) {
                     if let trip = pendingDelete { Task { await store.delete(trip) } }
                     pendingDelete = nil
                 }
             }
             .confirmationDialog("Not a charge?", isPresented: Binding(get: { pendingChargeDelete != nil }, set: { if !$0 { pendingChargeDelete = nil } }), titleVisibility: .visible) {
-                Button("Delete charge", role: .destructive) {
+                Button("删除充电记录", role: .destructive) {
                     if let charge = pendingChargeDelete { Task { await store.delete(charge) } }
                     pendingChargeDelete = nil
                 }
             } message: {
-                Text("The battery level rose while the car was parked. Delete it if the car wasn't charged.")
+                Text("驻车期间电量上升的记录。若非实际充电请删除。")
             }
             .sheet(item: $editingCharge) { charge in
                 RefillEditor(refill: charge.refill(store.settings), remove: { Task { await store.delete(charge) } }) { amount, cost in
@@ -291,7 +291,7 @@ struct WeekCard: View {
                 if let cost = totals.cost, let perKm = totals.costPerKm {
                     Text("≈ \(Money.kdong(cost)) · \(Money.kdong(perKm, per: "km"))")
                 } else if !trips.isEmpty {
-                    Text("Cost unknown: set the prices behind the gear")
+                    Text("费用未知：请先设置油价/电价")
                 }
                 Spacer()
                 if let paid = chargesPaid {
@@ -339,7 +339,7 @@ struct WeekCard: View {
         .chartYAxis(.hidden)
         .chartLegend(.hidden)
         .frame(height: 140)
-        .accessibilityLabel("Kilometres per day, electric in teal and petrol in grey")
+        .accessibilityLabel("每日行驶公里数（青色=电，灰色=油）")
     }
 
     /// Room above the tallest bar for the charge and refuel marks.
@@ -392,7 +392,7 @@ struct TripRow: View {
             HStack(spacing: 4) {
                 Text(trip.startAt.formatted(date: .omitted, time: .shortened))
                     .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)
-                Text("· \(Int(trip.km.rounded())) km").font(.system(size: 15)).foregroundStyle(Theme.muted)
+                Text("· \(Int(trip.km.rounded())) 公里").font(.system(size: 15)).foregroundStyle(Theme.muted)
                 if trip.withoutPhone {
                     Text("·").font(.system(size: 15)).foregroundStyle(Theme.muted)
                     Image(systemName: "iphone.slash")
@@ -445,7 +445,7 @@ struct TripDetail: View {
                 Button {
                     confirmingDelete = true
                 } label: {
-                    Text("Delete trip")
+                    Text("删除行程")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Theme.warning)
                         .frame(maxWidth: .infinity, minHeight: 48)
@@ -481,7 +481,7 @@ struct TripDetail: View {
             .presentationDetents([.medium])
         }
         .confirmationDialog("Delete this trip?", isPresented: $confirmingDelete, titleVisibility: .visible) {
-            Button("Delete trip", role: .destructive) {
+            Button("删除行程", role: .destructive) {
                 Task { await store.delete(trip) }
                 dismiss()
             }
@@ -654,7 +654,7 @@ struct TripDetail: View {
         VStack(alignment: .leading, spacing: 6) {
             if unitStyled, value.hasSuffix("kđ") {
                 (Text(value.dropLast(2)).font(.system(size: 24, weight: .semibold)).foregroundColor(Theme.text)
-                    + Text("kđ").font(.system(size: 14)).foregroundColor(Theme.muted))
+                    + Text("元").font(.system(size: 14)).foregroundColor(Theme.muted))
             } else {
                 Text(value).font(.system(size: 24, weight: .semibold)).foregroundStyle(Theme.text)
             }
@@ -667,7 +667,7 @@ struct TripDetail: View {
 
     private func legend(_ label: String, _ km: Double) -> some View {
         (Text(label + " ").foregroundColor(Theme.muted)
-            + Text(trip.tooShort ? "–" : "≈ \(Int(km.rounded())) km").fontWeight(.semibold).foregroundColor(Theme.text))
+            + Text(trip.tooShort ? "–" : "≈ \(Int(km.rounded())) 公里").fontWeight(.semibold).foregroundColor(Theme.text))
             .font(.system(size: 13))
     }
 
@@ -699,7 +699,7 @@ struct TripSettingsView: View {
             Section {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
-                        Text("Electricity")
+                        Text("电费")
                         Spacer()
                         TextField("3.7", text: $electricity)
                             .keyboardType(.decimalPad)
@@ -709,8 +709,8 @@ struct TripSettingsView: View {
                             .background(RoundedRectangle(cornerRadius: 8).fill(Theme.raised))
                             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.raisedBorder))
                             .onSubmit(commit)
-                            .accessibilityLabel("Electricity price in thousand dong per kWh")
-                        Text("kđ/kWh").font(.system(size: 13)).foregroundStyle(Theme.muted).frame(width: 52, alignment: .leading)
+                            .accessibilityLabel("电价（元/kWh）")
+                        Text("元/kWh").font(.system(size: 13)).foregroundStyle(Theme.muted).frame(width: 52, alignment: .leading)
                     }
                     Text(electricityHint).font(.system(size: 12)).foregroundStyle(Theme.muted)
                 }
@@ -721,9 +721,9 @@ struct TripSettingsView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
-                                Text("Petrol").foregroundStyle(Theme.text)
+                                Text("油费").foregroundStyle(Theme.text)
                                 if draft.petrolOverrideVndPerLitre != nil {
-                                    Text("manual").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.warning)
+                                    Text("手动").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.warning)
                                         .padding(.horizontal, 6).padding(.vertical, 2)
                                         .overlay(Capsule().strokeBorder(Theme.warning.opacity(0.6)))
                                 }
@@ -733,17 +733,17 @@ struct TripSettingsView: View {
                         Spacer()
                         if let price = draft.petrolOverrideVndPerLitre ?? store.prices?.petrol?.vndPerLitre {
                             (Text(Money.thousands(price, decimal: true)).fontWeight(.semibold).foregroundColor(Theme.text)
-                                + Text("kđ/L").font(.system(size: 13)).foregroundColor(Theme.muted))
+                                + Text("元/L").font(.system(size: 13)).foregroundColor(Theme.muted))
                         } else {
-                            Text("Set").foregroundStyle(Theme.muted)
+                            Text("设定").foregroundStyle(Theme.muted)
                         }
                         Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.muted)
                     }
                 }
             } header: {
-                Text("Prices, for the cost estimate")
+                Text("费用估算单价")
             } footer: {
-                Text("Petrol is fetched by the server from public Vietnamese sources. Each trip keeps the prices of its day.")
+                Text("油价由服务端从公开数据源获取，每次行程按当日价格记录。")
             }
             .listRowBackground(Theme.card)
 
@@ -756,13 +756,13 @@ struct TripSettingsView: View {
 
             Section {
                 HStack {
-                    Text("Name")
+                    Text("名称")
                     TextField("This phone", text: $phoneName)
                         .multilineTextAlignment(.trailing)
                         .onSubmit(commit)
                 }
             } header: {
-                Text("This phone")
+                Text("本机")
             } footer: {
                 Text("Shown on trips this phone was in the car for. Other phones that share the car: \(otherPhones).")
             }
@@ -785,7 +785,7 @@ struct TripSettingsView: View {
                     }
                     .disabled(logger.simulating)
                 } footer: {
-                    Text("Demo mode: drives the pretend car a few kilometres and logs the trip.")
+                    Text("演示模式：模拟车辆行驶数公里并记录行程。")
                 }
                 .listRowBackground(Theme.card)
             }
@@ -793,23 +793,23 @@ struct TripSettingsView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.background)
-        .navigationTitle("Settings")
+        .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Petrol price", isPresented: $editingPetrol) {
             TextField("kđ per litre", text: $petrolOverride).keyboardType(.decimalPad)
-            Button("Use my price") {
+            Button("使用我的价格") {
                 draft.petrolOverrideVndPerLitre = Self.number(petrolOverride).map { $0 * 1000 }
                 commit()
             }
             if draft.petrolOverrideVndPerLitre != nil {
-                Button("Use the fetched price") {
+                Button("使用获取的价格") {
                     draft.petrolOverrideVndPerLitre = nil
                     commit()
                 }
             }
-            Button("Cancel", role: .cancel) {}
+            Button("取消", role: .cancel) {}
         } message: {
-            Text("In thousand dong per litre, e.g. 23.2. Overrides the fetched price until cleared.")
+            Text("油价（元/升），如 8.2。填写后将覆盖自动获取的油价。")
         }
         .task {
             await store.loadSettings()
@@ -923,7 +923,7 @@ struct ChargeRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "bolt.fill").font(.system(size: 13)).foregroundStyle(Theme.accent)
-                Text("Charged").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)
+                Text("已充电").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)
                 Text("· \(charge.timeRange)").font(.system(size: 15)).foregroundStyle(Theme.muted)
                 Spacer()
                 Text("\(Int(charge.socStart)) → \(Int(charge.socEnd)) %")
@@ -990,7 +990,7 @@ struct RefillEditor: View {
                 }
                 if !refill.amountEstimated || !refill.costEstimated {
                     Section {
-                        Button("Use the estimate") {
+                        Button("使用估算值") {
                             save(nil, nil)
                             dismiss()
                         }
@@ -998,24 +998,24 @@ struct RefillEditor: View {
                 }
                 if let remove {
                     Section {
-                        Button("Not a charge", role: .destructive) { confirmingRemove = true }
+                        Button("不是充电", role: .destructive) { confirmingRemove = true }
                     }
                 }
             }
             .confirmationDialog("Not a charge?", isPresented: $confirmingRemove, titleVisibility: .visible) {
-                Button("Delete charge", role: .destructive) {
+                Button("删除充电记录", role: .destructive) {
                     remove?()
                     dismiss()
                 }
             } message: {
-                Text("The battery level rose while the car was parked. Delete it if the car wasn't charged.")
+                Text("驻车期间电量上升的记录。若非实际充电请删除。")
             }
             .navigationTitle(refill.kind == .fuel ? "Refuel" : "Charge")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button("保存") {
                         save(Self.number(amount), Self.number(paid).map { $0 * 1000 })
                         dismiss()
                     }

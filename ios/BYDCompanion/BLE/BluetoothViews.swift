@@ -15,7 +15,7 @@ struct BluetoothChip: View {
                     .stroke(active ? Theme.accent : Theme.muted, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
                     .frame(width: 8, height: 13)
                 if active {
-                    Text("Bluetooth")
+                    Text("蓝牙")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Color(hex: 0xC9D1D9))
                         .lineLimit(1)
@@ -25,7 +25,7 @@ struct BluetoothChip: View {
             .padding(.vertical, 6)
         }
         .buttonStyle(RaisedButtonStyle(active: active, cornerRadius: 14))
-        .accessibilityLabel("Bluetooth")
+        .accessibilityLabel("蓝牙")
         .accessibilityValue(link.hasKey ? link.state.label : "Key not set up")
         .accessibilityHint("Shows Bluetooth details")
     }
@@ -48,17 +48,17 @@ struct BluetoothSheet: View {
                     LabeledContent("Status", value: link.hasKey ? link.state.label : "No key")
                     if link.hasKey {
                         if [.searching, .connecting, .authenticating].contains(link.state) {
-                            Button("Stop looking for the car", action: link.stop)
+                            Button("停止搜索车辆", action: link.stop)
                         } else {
-                            Button("Reconnect") { link.disconnect(); link.connect() }
+                            Button("重新连接") { link.disconnect(); link.connect() }
                         }
-                        Button("Remove Bluetooth key", role: .destructive) { link.removeKey() }
+                        Button("删除蓝牙钥匙", role: .destructive) { link.removeKey() }
                     } else {
                         Button(importing ? "Importing…" : "Import key from Mac server", action: importKey)
                             .disabled(importing)
                     }
                 } footer: {
-                    Text("Lock, unlock, trunk and honk go over Bluetooth when nearby; everything else via BYD's cloud.")
+                    Text("在车辆附近时，解锁/上锁/后备箱/鸣笛走蓝牙直连；其余功能走比亚迪云端。")
                 }
                 if link.hasKey {
                     autoUnlockSection
@@ -66,16 +66,16 @@ struct BluetoothSheet: View {
                 }
                 Section("Recent events") {
                     if link.log.isEmpty {
-                        Text("Nothing yet").foregroundStyle(.secondary)
+                        Text("暂无数据").foregroundStyle(.secondary)
                     }
                     ForEach(Array(link.log.enumerated().reversed()), id: \.offset) { _, line in
                         Text(line).font(.system(size: 13, design: .monospaced))
                     }
                 }
             }
-            .navigationTitle("Bluetooth key")
+            .navigationTitle("蓝牙钥匙")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("Done") { dismiss() } }
+            .toolbar { Button("完成") { dismiss() } }
         }
         .presentationDetents([.medium, .large])
         .sheet(isPresented: $showingIntro) {
@@ -104,7 +104,7 @@ struct BluetoothSheet: View {
                     .frame(width: 36, height: 36)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Theme.cardBorder))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Unlock as I walk up")
+                    Text("走近时自动解锁")
                     Text(autoUnlockSubtitle).font(.footnote).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
@@ -127,7 +127,7 @@ struct BluetoothSheet: View {
             if autoUnlock.isOn {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Text("Unlock distance")
+                        Text("解锁距离")
                         Spacer()
                         Text("≈ \(AutoUnlock.label(autoUnlock.distance))").fontWeight(.semibold).foregroundStyle(Theme.accent)
                     }
@@ -135,33 +135,33 @@ struct BluetoothSheet: View {
                         ForEach(AutoUnlock.distances, id: \.self) { Text(AutoUnlock.label($0)).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    Text("Approximate. Widen it if it unlocks too late.")
+                    Text("为估算值。若解锁太迟请调大距离。")
                         .font(.footnote).foregroundStyle(.secondary)
                     signalNow
                 }
                 .padding(.vertical, 4)
                 HStack(spacing: 6) {
-                    Text("Location access")
+                    Text("定位权限")
                     Spacer()
                     Image(systemName: "checkmark")
                         .font(.footnote.weight(.bold))
                         .foregroundStyle(Theme.accent)
-                    Text("Always").foregroundStyle(.secondary)
+                    Text("始终允许").foregroundStyle(.secondary)
                 }
             } else if autoUnlock.needsAlways {
                 VStack(alignment: .leading, spacing: 10) {
-                    Label("Needs location set to Always.", systemImage: "exclamationmark.triangle")
+                    Label("需要将定位权限设为“始终允许”。", systemImage: "exclamationmark.triangle")
                         .font(.subheadline)
                         .symbolRenderingMode(.multicolor)
-                    Button("Open Settings", action: autoUnlock.openSettings)
+                    Button("打开设置", action: autoUnlock.openSettings)
                         .fontWeight(.semibold)
                 }
                 .padding(.vertical, 4)
             }
         } header: {
-            Text("Auto-unlock")
+            Text("走近自动解锁")
         } footer: {
-            Text("Only after you've been away and come back. Bluetooth only.")
+            Text("仅在离开后返回时触发。仅蓝牙生效。")
         }
     }
 
@@ -187,7 +187,7 @@ struct BluetoothSheet: View {
                     .frame(width: 36, height: 36)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Theme.cardBorder))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Lock as I walk away")
+                    Text("离车时自动上锁")
                     Text(autoLock.isOn ? "On · beyond about \(AutoUnlock.label(autoLock.distance))" : "Off")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -203,7 +203,7 @@ struct BluetoothSheet: View {
             if autoLock.isOn {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Text("Lock distance")
+                        Text("上锁距离")
                         Spacer()
                         Text("≈ \(AutoUnlock.label(autoLock.distance))").fontWeight(.semibold).foregroundStyle(Theme.accent)
                     }
@@ -211,7 +211,7 @@ struct BluetoothSheet: View {
                         ForEach(AutoLock.distances, id: \.self) { Text(AutoUnlock.label($0)).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    Text("Approximate. Narrow it if it locks too late.")
+                    Text("为估算值。若上锁太迟请调大距离。")
                         .font(.footnote).foregroundStyle(.secondary)
                     signalNow
                     Text(autoLock.statusText)
@@ -221,9 +221,9 @@ struct BluetoothSheet: View {
                 .padding(.vertical, 4)
             }
         } header: {
-            Text("Auto-lock")
+            Text("离车自动上锁")
         } footer: {
-            Text("A few seconds after you walk past the chosen distance. Bluetooth only; not while the car is on or a door is open.")
+            Text("走近超过设定距离数秒后触发。仅蓝牙生效；车辆上电或车门打开时不触发。")
         }
     }
 
@@ -248,8 +248,8 @@ struct AutoUnlockIntro: View {
                 .background(RoundedRectangle(cornerRadius: 18).fill(Theme.accent.opacity(0.15)))
                 .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Theme.accent))
             VStack(alignment: .leading, spacing: 8) {
-                Text("Unlock as you walk up").font(.system(size: 24, weight: .bold))
-                (Text("To do this, the app needs your location set to ") + Text("Always").bold() + Text("."))
+                Text("走近时自动解锁").font(.system(size: 24, weight: .bold))
+                (Text("为此，需要将本应用定位权限设为 ") + Text("始终允许").bold() + Text("."))
                     .foregroundStyle(Color(hex: 0xC9D1D9))
             }
             VStack(alignment: .leading, spacing: 14) {
@@ -260,12 +260,12 @@ struct AutoUnlockIntro: View {
             Spacer(minLength: 0)
             VStack(spacing: 10) {
                 Button(action: proceed) {
-                    Text("Continue").font(.system(size: 17, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 52)
+                    Text("继续").font(.system(size: 17, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 52)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Theme.accent)
                 .foregroundStyle(Theme.background)
-                Button("Not now", action: cancel)
+                Button("暂不", action: cancel)
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .foregroundStyle(Color(hex: 0xC9D1D9))
             }

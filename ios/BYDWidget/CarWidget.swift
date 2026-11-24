@@ -69,7 +69,7 @@ struct CarWidgetView: View {
                 (Text("\(Int((s.rangeTotalKm ?? 0).rounded()))")
                     .foregroundColor(entry.offline ? Theme.muted : Theme.text)
                     .fontWeight(.semibold)
-                    + Text(" km").foregroundColor(entry.offline ? Theme.fuel : Theme.muted))
+                    + Text(" 公里").foregroundColor(entry.offline ? Theme.fuel : Theme.muted))
                     .font(.system(size: 15))
                 Spacer()
                 VStack(alignment: .trailing, spacing: 3) {
@@ -107,7 +107,7 @@ struct CarWidgetView: View {
                               active: locked && lockKnown,
                               control: .lock,
                               command: locked ? .unlock : .lock)
-                commandButton("Trunk",
+                commandButton("后备箱",
                               systemImage: "car.side.rear.open",
                               active: s.trunkOpen ?? false,
                               control: .trunk,
@@ -117,7 +117,7 @@ struct CarWidgetView: View {
                               active: s.acOn ?? false,
                               control: .ac,
                               command: s.acOn ?? false ? .acStop : .acStart)
-                commandButton("Honk",
+                commandButton("鸣笛",
                               systemImage: "speaker.wave.3.fill",
                               active: false,
                               control: .honk,
@@ -132,9 +132,9 @@ struct CarWidgetView: View {
     @ViewBuilder
     private var pill: some View {
         if entry.offline {
-            pillLabel("No internet", systemImage: "exclamationmark.triangle.fill", tint: Theme.warning)
+            pillLabel("无网络连接", systemImage: "exclamationmark.triangle.fill", tint: Theme.warning)
         } else if entry.status?.charging == true {
-            pillLabel("Charging", systemImage: "bolt.fill", tint: Theme.accent)
+            pillLabel("充电中", systemImage: "bolt.fill", tint: Theme.accent)
         }
     }
 

@@ -2,7 +2,7 @@
 // Config.local.example.xcconfig to Config.local.xcconfig (gitignored) and override there.
 
 // Name under the icon on the home screen.
-APP_DISPLAY_NAME = BYD Companion
+APP_DISPLAY_NAME = BYD 车伴
 // Must be unique to you, e.g. com.yourname.byd-companion.
 APP_BUNDLE_ID = com.example.byd-companion
 // Name of an app icon set in an asset catalog (see README, "Custom icon").

@@ -137,7 +137,7 @@ struct RangeBar: View {
         HStack(spacing: 6) {
             Image(systemName: icon).foregroundStyle(color).font(.system(size: 12))
             Text(label).foregroundStyle(Theme.muted)
-            Text("\(Int(km.rounded())) km").fontWeight(.semibold).foregroundStyle(Theme.text)
+            Text("\(Int(km.rounded())) 公里").fontWeight(.semibold).foregroundStyle(Theme.text)
         }
     }
 }
@@ -149,11 +149,11 @@ struct TyreCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Tyres (bar)").foregroundStyle(Theme.muted)
+                Text("胎压 (bar)").foregroundStyle(Theme.muted)
                 Spacer()
                 if let odometerKm {
-                    Text("Odometer ").foregroundStyle(Theme.muted)
-                        + Text("\(odometerKm.formatted(.number.precision(.fractionLength(0)))) km")
+                    Text("总里程 ").foregroundStyle(Theme.muted)
+                        + Text("\(odometerKm.formatted(.number.precision(.fractionLength(0)))) 公里")
                         .fontWeight(.semibold).foregroundColor(Theme.text)
                 }
             }
