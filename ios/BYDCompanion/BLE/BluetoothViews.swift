@@ -40,10 +40,12 @@ struct BluetoothSheet: View {
     let importKey: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var showingIntro = false
+    @State private var provisioning = WatchProvisioning()
 
     var body: some View {
         NavigationStack {
             List {
+                provisioningSection
                 Section {
                     LabeledContent("状态", value: link.hasKey ? link.state.label : "未导入钥匙")
                     if link.hasKey {
@@ -337,6 +339,53 @@ struct ManualKeyEntry: View {
                 installError = nil
             }
             .disabled(dkey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+}
+
+
+// MARK: - 扫码配对区块（App 内自动获取 dkey，无需手动输入）
+
+extension BluetoothSheet {
+    @ViewBuilder
+    private var provisioningSection: some View {
+        Section("扫码配对（推荐）") {
+            if case .showingQR = provisioning.phase {
+                if let image = provisioning.qrImage {
+                    HStack {
+                        Spacer()
+                        Image(uiImage: image)
+                            .interpolation(.none)
+                            .resizable()
+                            .frame(width: 200, height: 200)
+                        Spacer()
+                    }
+                    .padding(.vertical, 4)
+                    Text("用官方比亚迪 App 的“扫一扫”扫描此二维码，并在官方 App 中确认配对。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            Text(provisioning.statusText).font(.footnote).foregroundStyle(.secondary)
+
+            if provisioning.phase == .showingQR || provisioning.phase == .waitingApproval {
+                Button("取消", role: .destructive) { provisioning.cancel() }
+            } else if case .failed(let reason) = provisioning.phase {
+                Text(reason).font(.footnote).foregroundStyle(.red)
+                Button("重新扫码配对") { startProvisioning() }
+            } else if provisioning.phase == .done {
+                Text("✓ 配对成功，蓝牙钥匙已自动导入").font(.footnote).foregroundStyle(Theme.accent)
+                Button("重新配对") { startProvisioning() }
+            } else {
+                Button("开始扫码配对") { startProvisioning() }
+            }
+        } footer: {
+            Text("配对成功后 dkey/钥匙编号/VIN/MAC 会自动导入，无需手动填写。下方手动导入仅作为备用。")
+        }
+    }
+
+    private func startProvisioning() {
+        provisioning.start { key in
+            do { try link.installKey(key) } catch { }
         }
     }
 }
