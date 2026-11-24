@@ -1,0 +1,41 @@
+# Codemagic 构建配置 — 未签名 IPA（供全能签自签）
+# 使用：codemagic.io 连接仓库后，选择本 workflow 手动启动
+workflows:
+  byd-companion:
+    name: BYD Companion unsigned IPA
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+      groups:
+        - app_settings
+    scripts:
+      - name: Show toolchain
+        script: xcodebuild -version
+      - name: Archive (unsigned)
+        script: |
+          xcodebuild \
+            -project ios/BYDCompanion.xcodeproj \
+            -scheme BYDCompanion \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath $CM_BUILD_DIR/BYDCompanion.xcarchive \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_ENTITLEMENTS=""
+      - name: Package IPA
+        script: |
+          mkdir -p $CM_BUILD_DIR/Payload
+          cp -R "$CM_BUILD_DIR/BYDCompanion.xcarchive/Products/Applications/BYDCompanion.app" $CM_BUILD_DIR/Payload/
+          cd $CM_BUILD_DIR && zip -qry BYDCompanion-unsigned.ipa Payload && ls -la BYDCompanion-unsigned.ipa
+    artifacts:
+      - BYDCompanion-unsigned.ipa
+    publishing:
+      email:
+        recipients:
+          - x13043460636@gmail.com
+        notify:
+          success: true
+          failure: true
