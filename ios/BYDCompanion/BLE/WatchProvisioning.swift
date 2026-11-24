@@ -166,12 +166,22 @@ final class WatchProvisioning {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw Err.badResponse("\(endpoint): HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
         }
+        let rawText = String(data: data, encoding: .utf8) ?? "<非文本>"
         guard let outer = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw Err.badResponse("\(endpoint): 响应不是 JSON")
+            throw Err.badResponse("\(endpoint): 响应不是 JSON。原始: \(rawText.prefix(180))")
         }
-        let wrapped = (outer["response"] as? String) ?? (outer["respondData"] as? String) ?? "{}"
-        guard let envelope = try? JSONSerialization.jsonObject(with: Data(wrapped.utf8)) as? [String: Any] else {
-            throw Err.badResponse("\(endpoint): 响应信封不是 JSON")
+        // 信封兼容：response/respondData 可能是字符串化 JSON，也可能直接是对象
+        let wrappedAny = (outer["response"] ?? outer["respondData"]) ?? "{}"
+        let envelope: [String: Any]
+        if let dict = wrappedAny as? [String: Any] {
+            envelope = dict
+        } else if let wrapped = wrappedAny as? String {
+            guard let parsed = try? JSONSerialization.jsonObject(with: Data(wrapped.utf8)) as? [String: Any] else {
+                throw Err.badResponse("\(endpoint): 响应信封不是 JSON。原始: \(rawText.prefix(180))")
+            }
+            envelope = parsed
+        } else {
+            throw Err.badResponse("\(endpoint): 响应信封类型未知。原始: \(rawText.prefix(180))")
         }
         if let code = envelope["code"] as? String, code != "0" {
             throw Err.badResponse("\(endpoint): code=\(code) message=\(envelope["message"] ?? "")")
