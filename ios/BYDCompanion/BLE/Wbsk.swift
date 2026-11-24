@@ -1,275 +1,308 @@
+//
+//  Wbsk.swift
+//  CN 白盒 AES-256 信封（WBSK）——与 BYD CN App libwbsk_crypto_tool.so 同源
+//  按 AwangYes/BYD-re wbsk.js 精确移植，已对 node 生成向量逐字节校验。
+//
 import Foundation
 
-// MARK: - Wbsk — BYD BLE 白盒 AES（从控车助手 com.devnull.kongche v1.3.0 逆向还原）
-//
-// 还原来源：
-//   - encryptBlock @0x10017296c（见项目 re/encryptBlock.asm）
-//   - parseWbcKey  @0x1001721e0（见 re/parseWbcKey.asm）
-//   - nibble 辅助表直读自二进制 @0x1003daa38 / @0x1003dab58
-//   - 表数据：WbskTables.swift（由迪控 wbsk_tables.json 生成，与 kongche WbskTablesData 同源）
-//
-// 结构：标准 AES 骨架（T-table + ShiftRows + 自定义 S-box）
-//       + 每字节白盒 nibble 交叉混合（nibmix）+ 分段轮密钥。
+enum WbskError: Error, LocalizedError {
+    case badBase64
+    case badEnvelope(String)
+    var errorDescription: String? {
+        switch self {
+        case .badBase64: return "信封 Base64 解码失败"
+        case .badEnvelope(let m): return "信封解析失败: \(m)"
+        }
+    }
+}
 
 enum Wbsk {
-
-    // MARK: 错误
-
-    enum Err: LocalizedError {
-        case keyTooShort
-        case invalidSeed(UInt8)
-        case shortInput
-        case badPadding
-
-        var errorDescription: String? {
-            switch self {
-            case .keyTooShort: return "密钥串过短（需 ≥ 5 字符）"
-            case .invalidSeed(let s): return "密钥种子校验失败：\(s)"
-            case .shortInput: return "输入不足 16 字节"
-            case .badPadding: return "PKCS7 填充无效"
-            }
-        }
-    }
-
-    // MARK: 常量
-
-    /// ShiftRows 列索引（还原自二进制 @0x1003daaa0 的 Int 表）
-    static let shiftRows: [Int] = [0, 5, 10, 15, 4, 9, 14, 3, 8, 13, 2, 7, 12, 1, 6, 11]
-
-    /// NIBBLE 表 @0x1003daa38（nibble 循环左移）
-    static let nibbleDecode: [UInt8] = [0x00, 0x08, 0x04, 0x0C, 0x01, 0x09, 0x05, 0x0D,
-                                        0x02, 0x0A, 0x06, 0x0E, 0x03, 0x0B, 0x07, 0x0F]
-    /// MYSTERY 表 @0x1003dab58
-    static let mysteryEncode: [UInt8] = [0x04, 0x06, 0x05, 0x07, 0x0C, 0x0E, 0x0D, 0x0F,
-                                         0x00, 0x02, 0x01, 0x03, 0x08, 0x0A, 0x09, 0x0B]
-
-    /// seed → 配置字（还原自 @0x100262fd0，20 项）
-    static let seedConfig: [UInt64] = [
-        0x80, 0x80, 0xC0, 0xC0, 0x80, 0x80, 0x40, 0x40,
-        0xC0, 0xC0, 0x80, 0x80, 0x80, 0x80, 0xC0, 0xC0,
-        0x100, 0x100, 0x40, 0x40,
-    ]
-    /// parseWbcKey 接受的 seed 集合（位掩码 0x000c00c0）
-    static let validSeedMask: UInt32 = 0x000C_00C0
-
-    // MARK: 核心原语
-
-    /// 白盒 nibble 交叉混合（encryptBlock 内反复出现的组合模式）。
-    /// a = (x高位 | y高位)；b = (y低位 | x低位)；out = (T[a] 高 nibble) | (T[b] >> 4)
-    @inline(__always)
-    static func nibmix(_ table: [UInt8], _ x: UInt8, _ y: UInt8) -> UInt8 {
-        let a = (x & 0xF0) | (y >> 4)
-        let b = ((y & 0x0F) << 4) | (x & 0x0F)
-        return ((table[Int(a)] & 0xF0) | (table[Int(b)] >> 4))
-    }
-
-    /// put 闭包语义：UInt32 按大端写入 16 字节缓冲的 word p。
-    @inline(__always)
-    static func putWordBE(_ buffer: inout [UInt8], _ p: Int, _ word: UInt32) {
-        buffer[4 * p + 0] = UInt8(truncatingIfNeeded: word >> 24)
-        buffer[4 * p + 1] = UInt8(truncatingIfNeeded: word >> 16)
-        buffer[4 * p + 2] = UInt8(truncatingIfNeeded: word >> 8)
-        buffer[4 * p + 3] = UInt8(truncatingIfNeeded: word)
-    }
-
-    @inline(__always)
-    static func wordLE(_ table: [UInt8], _ index: Int) -> UInt32 {
-        let o = index * 4
-        return UInt32(table[o]) | (UInt32(table[o + 1]) << 8) | (UInt32(table[o + 2]) << 16) | (UInt32(table[o + 3]) << 24)
-    }
-
-    // MARK: encryptBlock（完整还原）
-
-    /// - Parameters:
-    ///   - input: 16 字节明文块
-    ///   - keyData: 分段轮密钥，长度 = 16 * (numRounds + 1)
-    ///   - numRounds: 轮数（来自 parseWbcKey，生产密钥为 8 或 12）
-    static func encryptBlock(_ input: [UInt8], keyData: [UInt8], numRounds: Int) -> [UInt8] {
-        precondition(input.count >= 16, "encryptBlock: 输入不足 16 字节")
-        precondition(keyData.count >= 16 * (numRounds + 1), "encryptBlock: 轮密钥长度不足")
-
-        var state = [UInt8](repeating: 0, count: 16)
-        // ① 初始白盒化
-        for i in 0..<16 {
-            state[i] = nibmix(WbskTables.encInitXor, input[i], keyData[i])
-        }
-
-        // ② 主轮循环 r = 1..<numRounds
-        var b = [UInt8](repeating: 0, count: 16)
-        var a = [UInt8](repeating: 0, count: 16)
-        for r in 1..<max(numRounds, 1) {
-            let rk = Array(keyData[16 * r ..< 16 * r + 16])
-            // Te0 组（写入 B）
-            for p in 0..<4 {
-                putWordBE(&b, p, wordLE(WbskTables.encTe0, Int(state[4 * p])))
-            }
-            // Te1 组（写入 A，对角线 +5）
-            for p in 0..<4 {
-                putWordBE(&a, p, wordLE(WbskTables.encTe1, Int(state[(4 * p + 5) % 16])))
-            }
-            // 混合 1
-            for i in 0..<16 {
-                b[i] = nibmix(WbskTables.encRoundXor, b[i], a[i])
-            }
-            // Te2 组（写入 A——二进制中此组为死代码，被 Te3 覆盖；保留以精确对齐时序）
-            for p in 0..<4 {
-                putWordBE(&a, p, wordLE(WbskTables.encTe2, Int(state[(4 * p + 10) % 16])))
-            }
-            // Te3 组（写入 A，覆盖）
-            for p in 0..<4 {
-                putWordBE(&a, p, wordLE(WbskTables.encTe3, Int(state[(4 * p + 15) % 16])))
-            }
-            // 混合 2
-            for i in 0..<16 {
-                b[i] = nibmix(WbskTables.encRoundXor, b[i], a[i])
-            }
-            // 轮密钥注入
-            for i in 0..<16 {
-                state[i] = nibmix(WbskTables.encRoundXor, b[i], rk[i])
-            }
-        }
-
-        // ③ 末轮：ShiftRows + S-box + 终态混合
-        var t = [UInt8](repeating: 0, count: 16)
-        for i in 0..<16 {
-            t[i] = WbskTables.encSbox[Int(state[shiftRows[i]])]
-        }
-        let fk = Array(keyData[16 * numRounds ..< 16 * numRounds + 16])
-        var out = [UInt8](repeating: 0, count: 16)
-        for i in 0..<16 {
-            out[i] = nibmix(WbskTables.encFinalXor, t[i], fk[i])
-        }
-        return out
-    }
-
-    // MARK: 密钥解析
 
     struct ParsedKey {
         let keyData: [UInt8]
         let numRounds: Int
-        let seed: UInt8
+        let isDecrypt: Bool
+        let blockSize: Int
     }
 
-    /// 还原自 parseWbcKey @0x1001721e0：
-    ///   seed = key[0] ^ key[3]，必须 ∈ {6, 7, 14, 15}
-    ///   keyData[i] = key[4+i] ^ key[i % 3]
-    ///   numRounds = (seedConfig[seed] >> 5) + 6
-    static func parseWbcKey(_ keyString: String) throws -> ParsedKey {
-        let data = Array(keyString.utf8)
-        guard data.count >= 5 else { throw Err.keyTooShort }
-        let seed = UInt8(data[0] ^ data[3])
-        guard seed <= 0x13, validSeedMask & (1 << seed) != 0 else {
-            throw Err.invalidSeed(seed)
+    // MARK: - 静态密钥（CN 手表/超级 App API 通用）
+    static let outerEncryptKey = "4dca015d9f0488cdea45e890de3b9c4d16c9f82e1082e295c8312d34da7214b805bdec33d8473ab04c84a51eebee4fd5efee21ed403a159a083dbb2854c92719d8f24dd3002ce675c4b930fd5f410ebe56d9594532f9c109b7f2dc58eebd83a83cc948fd3dc0b696add8b06d19efa7c8c04d17f60d144d943e21ef4add5af566ef14241de9c3bb03cf9b9d3c5d042caa1fcdf222e02ba7cf577cc70375d0b4e7e3340278e56ddee1a180451b3a04f25fe34f0d1f05ec426b0de801e7d7382ecf2c3ab7be923c2d5ff0c33eaa4c45c71b258045f68bd7ad0f594ff86785611f67f30da78dfa9b427f04d625a2c61e2db62e1fe7d4"
+    static let outerDecryptKey = "72ca0163b22e2973656a67ac1ae1490a61133824a0cd235bcfcd6032dba79d3ca51b1c4d1b03068566ff084645dcc9e6e8a28b39c71e72dec3fe4074109a84f5564d3f43f4854fb634bf633dabe218a5b73470dff70b07161b76c74d92bffa15bcb7fa4fc448a0fe83b62c9dd97f36d1d1d7613028041bb1dd328397bbf8c8bf6f81321f5e2d4982761a375bded52a1de198169839fabad771bc677b57f806c1ca385f43627e9a5081c43d7c9d9fa86e7e78cc0a8050a2420a76c842abbe93eb38f2487bdf93087cd24097a16539da2f86feb693432daf8f0618cbf97ffea3a762b7b91050f8634a8d3ceb25ea7d2b3264a77337"
+    static let innerEncryptKey = "9fca018f72712b15e23c275ea5e06a92d8b98404cf0bf960955596ff47dd2adf8f9e0c3ca1363e8be88cb6fced211933e5c3484c20c7bc3ae1eb8541027fef4a20b2f302d93582f7f4349fef05c16d389956ae9f2a7aea278fd5232229e38caca017ffbaf5138d2cadbca917b4694fb2882a64809c095387b7353608ca3a17913e5863770465986995c684ea7db01e0c35c69fd169a8e14ec5123beb5b8dad6e1c5198f34ed1c44d5f9b15035673df5953e5e42351f58052c1483fa4cf93c646a396081355a46d5a7e0ce30d54049802829cd78c1a77c7db8f74acb244b73c5147f161ee25bd702112cec97c339a6b3314527d12"
+    static let innerDecryptKey = "71ca0160b689febe1c11e07bc8f8cec81decf71b6c3e0be299a35211888c2fb177958e57a6e971d0a874ecb50991786faf3a34b178f13a668bd14b81a82d3f799f6f0c8bd002406c8b6fdd54b3bb30c0c7d27c906dba87decde28717a0874abacf41755646b4a2c06854615ab00ae53136cbea3302b047659e7a42f792a7369fc130d8ffdc114a7a2cf2fa669b9b337905ff58fe3cc40b9b1edf37ebe50d36b3416abbd32837895b8ea1f22b9eab35efd791d9153208630297b8b953a9ca33265854c33959979b9eb1d049326986851170f4b51d151f43a30c6298a8c03503477336b2000c49746181ca30eabded6d3088b7f615"
+    static let outerEncryptIv = "91339992399838993130933138923692"
+    static let outerDecryptIv = "54cc5558c551c155c4c05cc4c158ca58"
+    static let innerEncryptIv = "a8bb9ab895ba95363a81b1949da68184"
+
+    // MARK: - 白盒半字节混合（protXor）
+    @inline(__always)
+    static func protXor(_ t: [UInt8], _ a: UInt8, _ b: UInt8) -> UInt8 {
+        let hi = t[Int(((a >> 4) << 4) ^ (b >> 4))] & 0xF0
+        let lo = (t[Int(((a & 0xF) << 4) ^ (b & 0xF))] >> 4) & 0x0F
+        return hi | lo
+    }
+
+    // MARK: - 密钥 blob 解析（JS 权威：raw[i] ^ raw[i % 3]，i 为原始下标）
+    static func parseWbcKey(_ hex: String) -> ParsedKey {
+        let raw = Wbsk.hexDecode(hex)
+        precondition(raw.count >= 5)
+        let mode = raw[0] ^ raw[3]
+        var keyData = [UInt8](repeating: 0, count: raw.count - 4)
+        for j in 0..<(raw.count - 4) {
+            let i = j + 4
+            keyData[j] = raw[i] ^ raw[i % 3]
         }
-        var keyData = [UInt8]()
-        keyData.reserveCapacity(data.count - 4)
-        for i in 0..<(data.count - 4) {
-            keyData.append(UInt8(data[4 + i]) ^ UInt8(data[i % 3]))
+        let bitsTable: [UInt8: Int] = [
+            0x00: 0x80, 0x01: 0x80, 0x02: 0xC0, 0x03: 0xC0, 0x04: 0x80, 0x05: 0x80,
+            0x06: 0x40, 0x07: 0x40, 0x08: 0xC0, 0x09: 0xC0, 0x0A: 0x80, 0x0B: 0x80,
+            0x0C: 0x80, 0x0D: 0x80, 0x0E: 0xC0, 0x0F: 0xC0, 0x10: 0x100, 0x11: 0x100,
+            0x12: 0x40, 0x13: 0x40, 0x14: 0xC0, 0x15: 0xC0, 0x16: 0x80, 0x17: 0x80
+        ]
+        let bits = bitsTable[mode] ?? 0x80
+        let numRounds = (bits >> 5) + 6
+        return ParsedKey(keyData: keyData,
+                         numRounds: numRounds,
+                         isDecrypt: mode & 1 == 1,
+                         blockSize: (mode == 6 || mode == 7 || mode == 0x12 || mode == 0x13) ? 8 : 16)
+    }
+
+    // MARK: - 加密块（每轮 Te0/Te1/Te2/Te3 四次 protXor 累加）
+    static func encryptBlock(_ input: [UInt8], _ key: ParsedKey) -> [UInt8] {
+        let T = WbskTables.self
+        var state = [UInt8](repeating: 0, count: 16)
+        for i in 0..<16 { state[i] = protXor(T.encInitXor, input[i], key.keyData[i]) }
+        var t1 = [UInt8](repeating: 0, count: 16)
+        var t2 = [UInt8](repeating: 0, count: 16)
+        let te1i = [5, 9, 13, 1], te2i = [10, 14, 2, 6], te3i = [15, 3, 7, 11]
+        for r in 1..<key.numRounds {
+            for c in 0..<4 {
+                let b = c * 4
+                let w = wordBE(T.encTe0, Int(state[b]))
+                t1[b] = UInt8((w >> 24) & 0xFF); t1[b+1] = UInt8((w >> 16) & 0xFF)
+                t1[b+2] = UInt8((w >> 8) & 0xFF); t1[b+3] = UInt8(w & 0xFF)
+            }
+            for c in 0..<4 {
+                let b = c * 4
+                let w = wordBE(T.encTe1, Int(state[te1i[c]]))
+                t2[b] = UInt8((w >> 24) & 0xFF); t2[b+1] = UInt8((w >> 16) & 0xFF)
+                t2[b+2] = UInt8((w >> 8) & 0xFF); t2[b+3] = UInt8(w & 0xFF)
+            }
+            for i in 0..<16 { t1[i] = protXor(T.encRoundXor, t1[i], t2[i]) }
+            for c in 0..<4 {
+                let b = c * 4
+                let w = wordBE(T.encTe2, Int(state[te2i[c]]))
+                t2[b] = UInt8((w >> 24) & 0xFF); t2[b+1] = UInt8((w >> 16) & 0xFF)
+                t2[b+2] = UInt8((w >> 8) & 0xFF); t2[b+3] = UInt8(w & 0xFF)
+            }
+            for i in 0..<16 { t1[i] = protXor(T.encRoundXor, t1[i], t2[i]) }
+            for c in 0..<4 {
+                let b = c * 4
+                let w = wordBE(T.encTe3, Int(state[te3i[c]]))
+                t2[b] = UInt8((w >> 24) & 0xFF); t2[b+1] = UInt8((w >> 16) & 0xFF)
+                t2[b+2] = UInt8((w >> 8) & 0xFF); t2[b+3] = UInt8(w & 0xFF)
+            }
+            for i in 0..<16 { t1[i] = protXor(T.encRoundXor, t1[i], t2[i]) }
+            let rk = r * 16
+            for i in 0..<16 { state[i] = protXor(T.encRoundXor, t1[i], key.keyData[rk + i]) }
         }
-        let cfg = seedConfig[Int(seed)]
-        let numRounds = Int(cfg >> 5) + 6
-        return ParsedKey(keyData: keyData, numRounds: numRounds, seed: seed)
-    }
-
-    // MARK: 白盒包络（wbcInputEncode / wbcOutputDecode / nibble 编解码）
-
-    /// nibbleEncode：每字节高低 nibble 分别查 NIBBLE 表
-    static func nibbleEncode(_ input: [UInt8]) -> [UInt8] {
-        input.map { (nibbleDecode[Int($0 >> 4)] << 4) | nibbleDecode[Int($0 & 0x0F)] }
-    }
-
-    /// nibbleDecode：与 encode 逆过程（对 NIBBLE 表求逆查表）
-    static func nibbleDecodeBytes(_ input: [UInt8]) -> [UInt8] {
-        var inv = [UInt8](repeating: 0, count: 16)
-        for i in 0..<16 { inv[Int(nibbleDecode[i])] = UInt8(i) }
-        return input.map { (inv[Int($0 >> 4)] << 4) | inv[Int($0 & 0x0F)] }
-    }
-
-    /// wbcInputEncode：MYSTERY 表 nibble 替换（加密入口）
-    static func wbcInputEncode(_ input: [UInt8]) -> [UInt8] {
-        input.map { (mysteryEncode[Int($0 >> 4)] << 4) | mysteryEncode[Int($0 & 0x0F)] }
-    }
-
-    /// wbcOutputDecode：NIBBLE 表双重替换（加密出口；与二进制 @0x1001737a4 一致）
-    static func wbcOutputDecode(_ input: [UInt8]) -> [UInt8] {
-        input.map {
-            let hi = nibbleDecode[Int(nibbleDecode[Int($0 >> 4)])]
-            let lo = nibbleDecode[Int(nibbleDecode[Int($0 & 0x0F)])]
-            return (hi << 4) | lo
+        let sr = [0, 5, 10, 15, 4, 9, 14, 3, 8, 13, 2, 7, 12, 1, 6, 11]
+        var out = [UInt8](repeating: 0, count: 16)
+        let frk = key.numRounds * 16
+        for i in 0..<16 {
+            out[i] = protXor(T.encFinalXor, T.encSbox[Int(state[sr[i]])], key.keyData[frk + i])
         }
+        return out
     }
 
-    /// PKCS7 填充（块大小 16）
-    static func addPkcs7(_ input: [UInt8], blockSize: Int = 16) -> [UInt8] {
-        let pad = blockSize - (input.count % blockSize)
-        return input + [UInt8](repeating: UInt8(pad), count: pad)
-    }
-
-    /// 去 PKCS7 填充（还原自 stripPkcs7：校验末字节并逐字节验证）
-    static func stripPkcs7(_ input: [UInt8]) throws -> [UInt8] {
-        guard let last = input.last, last >= 1, last <= 16, input.count >= Int(last) else {
-            throw Err.badPadding
+    // MARK: - 解密块（Td0-Td3 四次累加 + 逆移位）
+    static func decryptBlock(_ input: [UInt8], _ key: ParsedKey) -> [UInt8] {
+        let T = WbskTables.self
+        var state = [UInt8](repeating: 0, count: 16)
+        for i in 0..<16 { state[i] = protXor(T.decInitXor, input[i], key.keyData[i]) }
+        var t1 = [UInt8](repeating: 0, count: 16)
+        var t2 = [UInt8](repeating: 0, count: 16)
+        let td1i = [13, 1, 5, 9], td2i = [10, 14, 2, 6], td3i = [7, 11, 15, 3]
+        for r in 1..<key.numRounds {
+            for c in 0..<4 {
+                let b = c * 4
+                let w = wordBE(T.decTd0, Int(state[b]))
+                t1[b] = UInt8((w >> 24) & 0xFF); t1[b+1] = UInt8((w >> 16) & 0xFF)
+                t1[b+2] = UInt8((w >> 8) & 0xFF); t1[b+3] = UInt8(w & 0xFF)
+            }
+            for c in 0..<4 {
+                let b = c * 4
+                let w = wordBE(T.decTd1, Int(state[td1i[c]]))
+                t2[b] = UInt8((w >> 24) & 0xFF); t2[b+1] = UInt8((w >> 16) & 0xFF)
+                t2[b+2] = UInt8((w >> 8) & 0xFF); t2[b+3] = UInt8(w & 0xFF)
+            }
+            for i in 0..<16 { t1[i] = protXor(T.decRoundXor, t1[i], t2[i]) }
+            for c in 0..<4 {
+                let b = c * 4
+                let w = wordBE(T.decTd2, Int(state[td2i[c]]))
+                t2[b] = UInt8((w >> 24) & 0xFF); t2[b+1] = UInt8((w >> 16) & 0xFF)
+                t2[b+2] = UInt8((w >> 8) & 0xFF); t2[b+3] = UInt8(w & 0xFF)
+            }
+            for i in 0..<16 { t1[i] = protXor(T.decRoundXor, t1[i], t2[i]) }
+            for c in 0..<4 {
+                let b = c * 4
+                let w = wordBE(T.decTd3, Int(state[td3i[c]]))
+                t2[b] = UInt8((w >> 24) & 0xFF); t2[b+1] = UInt8((w >> 16) & 0xFF)
+                t2[b+2] = UInt8((w >> 8) & 0xFF); t2[b+3] = UInt8(w & 0xFF)
+            }
+            for i in 0..<16 { t1[i] = protXor(T.decRoundXor, t1[i], t2[i]) }
+            let rk = r * 16
+            for i in 0..<16 { state[i] = protXor(T.decRoundXor, t1[i], key.keyData[rk + i]) }
         }
-        let pad = Int(last)
-        guard input.suffix(pad).allSatisfy({ $0 == last }) else { throw Err.badPadding }
-        return Array(input.dropLast(pad))
+        let invSr = [0, 13, 10, 7, 4, 1, 14, 11, 8, 5, 2, 15, 12, 9, 6, 3]
+        var out = [UInt8](repeating: 0, count: 16)
+        let frk = key.numRounds * 16
+        for i in 0..<16 {
+            out[i] = protXor(T.decFinalXor, T.decInvSbox[Int(state[invSr[i]])], key.keyData[frk + i])
+        }
+        return out
     }
 
-    // MARK: CBC
-
-    /// 加密 CBC（IV 处理按标准 CBC 假设：P[0]⊕IV 后逐块链接——待与 encryptCbc.asm 复核）
-    static func encryptCBC(_ plaintext: [UInt8], keyData: [UInt8], numRounds: Int, iv: [UInt8]) throws -> [UInt8] {
-        guard iv.count == 16 else { throw Err.shortInput }
-        let padded = addPkcs7(plaintext)
+    // MARK: - CBC
+    static func encryptCBC(_ plaintext: [UInt8], _ key: ParsedKey, _ iv: [UInt8]) -> [UInt8] {
+        var out = [UInt8](repeating: 0, count: plaintext.count)
         var prev = iv
-        var out = [UInt8]()
-        out.reserveCapacity(padded.count)
-        for chunk in stride(from: 0, to: padded.count, by: 16) {
-            let block = Array(padded[chunk ..< chunk + 16])
-            let xored = zip(block, prev).map { $0 ^ $1 }
-            let enc = encryptBlock(xored, keyData: keyData, numRounds: numRounds)
-            out.append(contentsOf: enc)
+        let blocks = plaintext.count / 16
+        for b in 0..<blocks {
+            var blk = [UInt8](repeating: 0, count: 16)
+            for i in 0..<16 { blk[i] = plaintext[b * 16 + i] ^ prev[i] }
+            let enc = encryptBlock(blk, key)
+            for i in 0..<16 { out[b * 16 + i] = enc[i] }
             prev = enc
         }
         return out
     }
 
-    /// encode（还原自 encode @0x100173878 的主路径）：
-    /// wbcInputEncode → addPkcs7 → parseWbcKey → encryptCBC → wbcOutputDecode
-    static func encode(_ plaintext: [UInt8], keyString: String, iv: [UInt8]) throws -> [UInt8] {
-        let prepared = wbcInputEncode(plaintext)
-        let padded = addPkcs7(prepared)
-        let parsed = try parseWbcKey(keyString)
-        let cipher = try encryptCBC(padded, keyData: parsed.keyData, numRounds: parsed.numRounds, iv: iv)
-        return wbcOutputDecode(cipher)
+    static func decryptCBC(_ ciphertext: [UInt8], _ key: ParsedKey, _ iv: [UInt8]) -> [UInt8] {
+        var out = [UInt8](repeating: 0, count: ciphertext.count)
+        var prev = iv
+        let blocks = ciphertext.count / 16
+        for b in 0..<blocks {
+            let blk = Array(ciphertext[b * 16 ..< b * 16 + 16])
+            let dec = decryptBlock(blk, key)
+            for i in 0..<16 { out[b * 16 + i] = dec[i] ^ prev[i] }
+            prev = blk
+        }
+        return out
     }
 
-    // MARK: 自检
+    // MARK: - 半字节编解码
+    static let nibbleEncodeTable: [UInt8] = [0x0, 0x8, 0x4, 0xC, 0x1, 0x9, 0x5, 0xD, 0x2, 0xA, 0x6, 0xE, 0x3, 0xB, 0x7, 0xF]
+    static let nibbleDecodeTable: [UInt8] = [0x0, 0x4, 0x8, 0xC, 0x2, 0x6, 0xA, 0xE, 0x1, 0x5, 0x9, 0xD, 0x3, 0x7, 0xB, 0xF]
+    static let mysteryEncodeTable: [UInt8] = [0x4, 0x6, 0x5, 0x7, 0xC, 0xE, 0xD, 0xF, 0x0, 0x2, 0x1, 0x3, 0x8, 0xA, 0x9, 0xB]
 
-    /// 结构自检：表完整性 + 加解密往返（decrypt 侧实现后启用）
-    static func structuralSelfTest() -> [String] {
-        var results = [String]()
-        // 表尺寸
-        let sizesOK = WbskTables.encTe0.count == 1024 && WbskTables.encSbox.count == 256 &&
-            WbskTables.encInitXor.count == 256 && WbskTables.encFinalXor.count == 256
-        results.append(sizesOK ? "表尺寸: PASS" : "表尺寸: FAIL")
-        // nibmix 双射性（固定 y 遍历 x 无碰撞）
-        var seen = Set<UInt8>()
-        for x in 0..<256 { seen.insert(nibmix(WbskTables.encInitXor, UInt8(x), 0x37)) }
-        results.append(seen.count == 256 ? "nibmix 单侧双射: PASS" : "nibmix 单侧双射: FAIL(\(seen.count))")
-        // seed 校验
-        do {
-            _ = try parseWbcKey("0006abc") // seed = '0'^'6' = 6 ✓
-            results.append("parseWbcKey seed=6: PASS")
-        } catch {
-            results.append("parseWbcKey seed=6: FAIL \(error)")
+    static func nibbleEncode(_ buf: [UInt8]) -> [UInt8] {
+        buf.map { (nibbleEncodeTable[Int($0 >> 4)] << 4) | nibbleEncodeTable[Int($0 & 0xF)] }
+    }
+    static func nibbleDecode(_ buf: [UInt8]) -> [UInt8] {
+        buf.map { (nibbleDecodeTable[Int($0 >> 4)] << 4) | nibbleDecodeTable[Int($0 & 0xF)] }
+    }
+    static func wbcInputEncode(_ buf: [UInt8]) -> [UInt8] {
+        buf.map { (mysteryEncodeTable[Int($0 >> 4)] << 4) | mysteryEncodeTable[Int($0 & 0xF)] }
+    }
+    static func wbcOutputDecode(_ buf: [UInt8]) -> [UInt8] {
+        buf.map {
+            let hi = nibbleEncodeTable[Int(nibbleEncodeTable[Int($0 >> 4)])]
+            let lo = nibbleEncodeTable[Int(nibbleEncodeTable[Int($0 & 0xF)])]
+            return (hi << 4) | lo
         }
-        do {
-            _ = try parseWbcKey("abcdx") // seed = 'a'^'d' = 5 ✗
-            results.append("parseWbcKey seed=5 拒绝: FAIL(未抛错)")
-        } catch {
-            results.append("parseWbcKey seed=5 拒绝: PASS")
+    }
+
+    // MARK: - 神秘域 PKCS7
+    static func addWbcPkcs7(_ buf: [UInt8], blockSize: Int = 16) -> [UInt8] {
+        var rem = blockSize - (buf.count % blockSize)
+        if rem == 0 { rem = blockSize }
+        let pad = (mysteryEncodeTable[rem >> 4] << 4) | mysteryEncodeTable[rem & 0xF]
+        return buf + [UInt8](repeating: pad, count: rem)
+    }
+    static func stripWbcPkcs7(_ buf: [UInt8]) -> [UInt8] {
+        guard let last = buf.last, last >= 1, last <= 16, buf.count >= Int(last) else { return buf }
+        let n = Int(last)
+        if buf.suffix(n).allSatisfy({ $0 == last }) { return Array(buf.dropLast(n)) }
+        return buf
+    }
+
+    // MARK: - 信封
+    static func encryptEnvelope(_ plaintext: String) throws -> String {
+        let innerPadded = addWbcPkcs7(wbcInputEncode(Array(plaintext.utf8)))
+        let innerKey = parseWbcKey(innerEncryptKey)
+        let innerIv = hexDecode(innerEncryptIv)
+        let innerEnc = encryptCBC(innerPadded, innerKey, innerIv)
+        let innerB64 = Data(wbcOutputDecode(innerEnc)).base64EncodedString()
+        let outerPlain = Array(innerB64.utf8) + wbcOutputDecode(innerIv)
+        let outerMystery = addWbcPkcs7(wbcInputEncode(outerPlain))
+        let outerKey = parseWbcKey(outerEncryptKey)
+        let outerIv = hexDecode(outerEncryptIv)
+        let outerEnc = encryptCBC(outerMystery, outerKey, outerIv)
+        return Data(wbcOutputDecode(outerEnc)).base64EncodedString()
+    }
+
+    static func decryptEnvelope(_ b64: String) throws -> String {
+        guard let raw = Data(base64Encoded: b64), !raw.isEmpty else { throw WbskError.badBase64 }
+        let rawBytes = [UInt8](raw)
+        var encoded = nibbleEncode(rawBytes)
+        encoded += [UInt8](repeating: 0, count: 256)
+        let outerKey = parseWbcKey(outerDecryptKey)
+        let outerIv = hexDecode(outerDecryptIv)
+        let outerDec = decryptCBC(encoded, outerKey, outerIv)
+        let outerContent = stripWbcPkcs7(nibbleDecode(Array(outerDec.prefix(rawBytes.count))))
+        guard outerContent.count > 16 else { throw WbskError.badEnvelope("外层内容过短") }
+        let contentLen = outerContent.count
+        let innerB64 = String(bytes: outerContent.prefix(contentLen - 16), encoding: .isoLatin1) ?? ""
+        let innerIv = Array(outerDec[(contentLen - 16) ..< contentLen])
+        guard let innerRaw = Data(base64Encoded: innerB64), !innerRaw.isEmpty else {
+            throw WbskError.badEnvelope("内层 Base64 解码失败")
         }
-        return results
+        var innerEncoded = nibbleEncode([UInt8](innerRaw))
+        innerEncoded += [UInt8](repeating: 0, count: 256)
+        let innerKey = parseWbcKey(innerDecryptKey)
+        let innerDec = decryptCBC(innerEncoded, innerKey, innerIv)
+        let innerContent = stripWbcPkcs7(nibbleDecode(Array(innerDec.prefix(innerRaw.count))))
+        guard let s = String(bytes: innerContent, encoding: .utf8) else {
+            throw WbskError.badEnvelope("内层明文非 UTF-8")
+        }
+        return s
+    }
+
+    // MARK: - 自检（App 启动时跑一次，结果进最近事件）
+    static func structuralSelfTest() -> String? {
+        let pt = "{\"appChannel\":\"99\",\"identifier\":\"13800000000\",\"reqTimestamp\":\"1700000000000\"}"
+        do {
+            let env = try encryptEnvelope(pt)
+            let expected = "zvnC6yxWPpMYsA1SwbwfArWaffbEIemK5x4YPlGhQIbuYb8BbM9RBdEzrXaID/eKEa7llVtyBTnD0gR8tpRiNs3B9UEaPx8UAgpEHcC4Tsi8ldKe0efWZ7ZP6Ec7INEjyaG6T6p+tTW4A8PZ5E6WSl63oaCZ0Jli21floKIRfEM="
+            if env != expected { return "信封向量不匹配(得到\(env.count)字符)" }
+            let rt = try decryptEnvelope(env)
+            if rt != pt { return "信封往返失败" }
+            return nil
+        } catch {
+            return "信封自检异常: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - 工具
+    static func wordBE(_ table: [UInt8], _ index: Int) -> UInt32 {
+        let o = index * 4
+        return UInt32(table[o]) << 24 | UInt32(table[o + 1]) << 16 | UInt32(table[o + 2]) << 8 | UInt32(table[o + 3])
+    }
+
+    static func hexDecode(_ s: String) -> [UInt8] {
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(s.count / 2)
+        var iter = s.utf8.makeIterator()
+        func nib() -> UInt8? {
+            guard let c = iter.next() else { return nil }
+            switch c {
+            case UInt8(ascii: "0")...UInt8(ascii: "9"): return c - UInt8(ascii: "0")
+            case UInt8(ascii: "a")...UInt8(ascii: "f"): return c - UInt8(ascii: "a") + 10
+            case UInt8(ascii: "A")...UInt8(ascii: "F"): return c - UInt8(ascii: "A") + 10
+            default: return nil
+            }
+        }
+        while let hi = nib(), let lo = nib() { bytes.append(hi << 4 | lo) }
+        return bytes
     }
 }

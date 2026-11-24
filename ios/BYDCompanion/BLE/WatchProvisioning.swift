@@ -161,7 +161,10 @@ final class WatchProvisioning {
         request.httpMethod = "POST"
         request.setValue("application/json; charset=UTF-8", forHTTPHeaderField: "Content-Type")
         request.setValue("okhttp/4.12.0", forHTTPHeaderField: "User-Agent")
-        request.httpBody = compactJSON(body).data(using: .utf8)
+        // CN 版：请求体 = {"request": WBSK 信封(明文 JSON)}
+        let plain = compactJSON(body)
+        let envelopeStr = try Wbsk.encryptEnvelope(plain)
+        request.httpBody = compactJSON(["request": envelopeStr]).data(using: .utf8)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw Err.badResponse("\(endpoint): HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
@@ -170,16 +173,34 @@ final class WatchProvisioning {
         guard let outer = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw Err.badResponse("\(endpoint): 响应不是 JSON。原始: \(rawText.prefix(180))")
         }
-        // 信封兼容：response/respondData 可能是字符串化 JSON，也可能直接是对象
+        // CN 错误在顶层：{"code":216,"response":"<信封>","message":...}
+        if let topCode = outer["code"] as? Int, topCode != 0 {
+            var detail = outer["message"] as? String ?? ""
+            if let blob = outer["response"] as? String, let inner = try? Wbsk.decryptEnvelope(blob) {
+                detail += " | 解密: \(inner.prefix(200))"
+            }
+            throw Err.badResponse("\(endpoint): code=\(topCode) \(detail)")
+        }
+        if let topCode = outer["code"] as? String, topCode != "0" {
+            throw Err.badResponse("\(endpoint): code=\(topCode) \(outer["message"] ?? "")")
+        }
         let wrappedAny = (outer["response"] ?? outer["respondData"]) ?? "{}"
         let envelope: [String: Any]
         if let dict = wrappedAny as? [String: Any] {
             envelope = dict
         } else if let wrapped = wrappedAny as? String {
-            guard let parsed = try? JSONSerialization.jsonObject(with: Data(wrapped.utf8)) as? [String: Any] else {
-                throw Err.badResponse("\(endpoint): 响应信封不是 JSON。原始: \(rawText.prefix(180))")
+            if let parsed = try? JSONSerialization.jsonObject(with: Data(wrapped.utf8)) as? [String: Any] {
+                envelope = parsed
+            } else {
+                // CN WBSK 信封 → 解密
+                let inner: String
+                do { inner = try Wbsk.decryptEnvelope(wrapped) }
+                catch { throw Err.badResponse("\(endpoint): 信封解密失败(\(error.localizedDescription))。原始: \(wrapped.prefix(120))") }
+                guard let parsed = try? JSONSerialization.jsonObject(with: Data(inner.utf8)) as? [String: Any] else {
+                    throw Err.badResponse("\(endpoint): 信封解密后不是 JSON: \(inner.prefix(200))")
+                }
+                envelope = parsed
             }
-            envelope = parsed
         } else {
             throw Err.badResponse("\(endpoint): 响应信封类型未知。原始: \(rawText.prefix(180))")
         }
@@ -191,9 +212,17 @@ final class WatchProvisioning {
         }
         let payload = (envelope["respondData"] as? String) ?? (envelope["response"] as? String) ?? ""
         guard !payload.isEmpty else { return [:] }
-        let decrypted = try aesDecryptString(payload, keyHex: md5Hex(decryptKey))
+        // 载荷可能是 AES-Hex（海外）或另一层信封/Base64（CN）
+        let decrypted: String
+        if let aes = try? aesDecryptString(payload, keyHex: md5Hex(decryptKey)), aes.contains("{") {
+            decrypted = aes
+        } else if let env2 = try? Wbsk.decryptEnvelope(payload) {
+            decrypted = env2
+        } else {
+            throw Err.badResponse("\(endpoint): 数据解密失败。载荷: \(payload.prefix(120))")
+        }
         guard let json = try? JSONSerialization.jsonObject(with: Data(decrypted.utf8)) as? [String: Any] else {
-            throw Err.badResponse("\(endpoint): 解密后数据不是 JSON")
+            throw Err.badResponse("\(endpoint): 解密后数据不是 JSON: \(decrypted.prefix(200))")
         }
         return json
     }
@@ -279,6 +308,11 @@ final class WatchProvisioning {
         phase = .creating
         statusText = "正在创建配对二维码…"
         log = []
+        if let selfTestFail = Wbsk.structuralSelfTest() {
+            note("⚠ 信封自检失败: \(selfTestFail)")
+        } else {
+            note("✓ 信封自检通过（WBSK CN）")
+        }
         pollTask?.cancel()
         pollTask = Task { [weak self] in
             guard let self else { return }
