@@ -77,7 +77,7 @@ struct CarWidgetView: View {
                         Circle()
                             .fill(entry.offline || !lockKnown ? Theme.fuel : (locked ? Theme.accent : Theme.warning))
                             .frame(width: 7, height: 7)
-                        Text(lockKnown ? (locked ? "Locked" : "Unlocked") : "Lock unknown")
+                        Text(lockKnown ? (locked ? "Locked" : "Unlocked") : "锁车状态未知")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(entry.offline ? Theme.muted : Theme.text)
                     }
@@ -112,7 +112,7 @@ struct CarWidgetView: View {
                               active: s.trunkOpen ?? false,
                               control: .trunk,
                               command: s.trunkOpen ?? false ? .trunkClose : .trunkOpen)
-                commandButton(s.acOn ?? false ? "A/C on" : "A/C",
+                commandButton(s.acOn ?? false ? "空调开启" : "A/C",
                               systemImage: "snowflake",
                               active: s.acOn ?? false,
                               control: .ac,
@@ -152,7 +152,7 @@ struct CarWidgetView: View {
 
     private func detail(_ s: CarStatus) -> String {
         var parts: [String] = []
-        if s.acOn == true { parts.append("A/C on") }
+        if s.acOn == true { parts.append("空调开启") }
         if let at = s.updatedAt {
             if entry.offline {
                 parts.append("最后更新 " + at.formatted(.relative(presentation: .numeric)))

@@ -169,7 +169,7 @@ struct BluetoothSheet: View {
     /// Live signal; in demo mode a long press steps it down.
     @ViewBuilder private var signalNow: some View {
         if let rssi = link.rssi {
-            Text("Signal now: \(rssi) dBm")
+            Text("当前信号：\(rssi) dBm")
                 .font(.footnote.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .onLongPressGesture {

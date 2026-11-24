@@ -23,11 +23,11 @@ final class BleCarLink: NSObject {
         var label: String {
             switch self {
             case .noKey: "蓝牙钥匙未配置"
-            case .stopped: "Not looking for the car"
+            case .stopped: "已停止搜索"
             case .bluetoothOff: "蓝牙已关闭"
-            case .searching: "Looking for the car…"
-            case .connecting: "Connecting…"
-            case .authenticating: "Authenticating…"
+            case .searching: "正在搜索车辆…"
+            case .connecting: "连接中…"
+            case .authenticating: "认证中…"
             case .ready: "蓝牙就绪"
             case .failed(let reason): reason
             }
@@ -45,8 +45,8 @@ final class BleCarLink: NSObject {
             switch self {
             case .notReady: "蓝牙未连接到车辆。"
             case .writeFailed: "蓝牙指令发送失败。"
-            case .rejected(let code): "The car refused the Bluetooth command (result \(code))."
-            case .unconfirmed: "Sent over Bluetooth, but the car didn't confirm. Check the car before retrying."
+            case .rejected(let code): "车辆拒绝了蓝牙指令（结果码 \(code)）。"
+            case .unconfirmed: "指令已通过蓝牙发送，但车辆未确认。重试前请先确认车辆状态。"
             }
         }
     }
@@ -150,7 +150,7 @@ final class BleCarLink: NSObject {
         try BleKeyStore.save(newKey)
         key = newKey
         hasKey = true
-        note("Bluetooth key installed (key #\(newKey.keyNumber))")
+        note("蓝牙钥匙已导入（编号 \(newKey.keyNumber)）")
         connect()
     }
 
@@ -312,7 +312,7 @@ final class BleCarLink: NSObject {
                 }
                 note("← random: keyState=\(random[2]) crc=\(random[11])")
                 guard random[11] == 1 else { throw AuthError("车辆拒绝了密钥交换") }
-                guard random[2] == 1 else { throw AuthError("Bluetooth key isn't active in the car (state \(random[2]))") }
+                guard random[2] == 1 else { throw AuthError("蓝牙钥匙在车辆端未激活（状态 \(random[2])）") }
                 guard let newSession = BleSession(dkeyHex: key.dkey, vehicleRandom: Array(random[3..<11]), appRandom: appRandom) else {
                     throw AuthError("存储的蓝牙钥匙无效")
                 }
@@ -325,7 +325,7 @@ final class BleCarLink: NSObject {
                     $0.count >= 3 && $0[0] == BleCodec.responseAuthentication && $0[1] == 0xD8
                 }
                 note("← auth result \(auth[2])")
-                guard auth[2] == 1 else { throw AuthError("The car refused the Bluetooth key (result \(auth[2]))") }
+                guard auth[2] == 1 else { throw AuthError("车辆拒绝了蓝牙钥匙（结果 \(auth[2])）") }
 
                 if let id = peripheral?.identifier {
                     UserDefaults.standard.set(id.uuidString, forKey: Self.savedPeripheralKey)
@@ -433,7 +433,7 @@ extension BleCarLink: CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         MainActor.assumeIsolated {
-            note("Connected; discovering services")
+            note("已连接，正在发现服务")
             peripheral.discoverServices([Self.serviceID])
         }
     }
@@ -473,7 +473,7 @@ extension BleCarLink: CBPeripheralDelegate {
         MainActor.assumeIsolated {
             guard let service = peripheral.services?.first(where: { $0.uuid == Self.serviceID }) else {
                 // Not the car after all; skip it and keep looking.
-                note("Device has no BYD key service; skipping")
+                note("设备无比亚迪钥匙服务，跳过")
                 rejectedPeripherals.insert(peripheral.identifier)
                 central.cancelPeripheralConnection(peripheral)
                 resetLink()

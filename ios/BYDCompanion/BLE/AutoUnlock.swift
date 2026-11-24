@@ -116,7 +116,7 @@ final class AutoUnlock: NSObject {
         default:
             break
         }
-        link.note("Auto-unlock switched on (≈\(Self.label(distance)))")
+        link.note("自动解锁已开启（≈\(Self.label(distance))）")
         updateRegion()
         if isOn, link.state == .ready { manager.requestLocation() }
     }
@@ -191,7 +191,7 @@ final class AutoUnlock: NSObject {
 
     private func watchTick() {
         if let watchStarted, Date().timeIntervalSince(watchStarted) > Self.watchLimit {
-            link.note("Auto-unlock: you didn't come close; disarmed")
+            link.note("自动解锁：未靠近，已解除")
             armedAt = nil
             stopWatching()
             return
@@ -224,7 +224,7 @@ final class AutoUnlock: NSObject {
         // Disarm first: one attempt per return, whatever the outcome.
         armedAt = nil
         stopWatching()
-        link.note("Auto-unlock: you're close (\(signal) dBm), unlocking")
+        link.note("自动解锁：已靠近（\(signal) dBm），正在解锁")
         Task {
             do {
                 try await link.send(.unlock)
@@ -232,7 +232,7 @@ final class AutoUnlock: NSObject {
             } catch BleCarLink.CommandError.unconfirmed {
                 CarNotifications.post("Sent unlock as you walked up, but the car didn't confirm. Check the car.")
             } catch {
-                CarNotifications.post("Auto-unlock didn't go through: \(error.localizedDescription)")
+                CarNotifications.post("自动解锁失败：\(error.localizedDescription)")
             }
         }
     }

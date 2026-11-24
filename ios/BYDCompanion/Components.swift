@@ -70,7 +70,7 @@ struct LockButton: View {
                 }
                 .frame(width: 44, height: 44)
 
-                Text(locked ? "Locked" : "Unlocked")
+                Text(locked ? "已上锁" : "已解锁")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(Theme.text)
                 Spacer(minLength: 0)
@@ -124,7 +124,7 @@ struct RangeBar: View {
             .clipShape(Capsule())
 
             HStack {
-                legend(icon: "bolt.fill", color: Theme.accent, label: "Electric", km: electricKm)
+                legend(icon: "bolt.fill", color: Theme.accent, label: "电", km: electricKm)
                 Spacer()
                 legend(icon: "fuelpump.fill", color: Theme.muted, label: "Fuel", km: fuelKm)
             }

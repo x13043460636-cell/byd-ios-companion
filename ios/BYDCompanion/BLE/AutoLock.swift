@@ -167,7 +167,7 @@ final class AutoLock {
         switch phase {
         case .idle: return "等待你在车旁出现"
         case .near: return "在车旁"
-        case .leaving: return "Walking away · locks in \(countdown ?? Int(Self.holdTime)) s"
+        case .leaving: return "正在离开 · \(countdown ?? Int(Self.holdTime)) 秒后上锁"
         case .done: return "本次到访结束"
         case .awaitingReconnect: return "已重连 · 检查信号中"
         case .doorOpen: return "车门开着 · 关闭后自动上锁"
@@ -178,13 +178,13 @@ final class AutoLock {
         guard isOn else { return }
         guard !otherPhoneLeads() else {
             phase = .idle
-            link.note("Auto-lock: another phone is driving the car; not watching")
+            link.note("自动上锁：另一部手机在用车，暂不监控")
             return
         }
         resetSignal()
         if let until = lockPendingUntil, Date() < until {
             phase = .awaitingReconnect(until: until)
-            link.note("Auto-lock: reconnected; locking if you're still away")
+            link.note("自动上锁：已重连，若仍远离则上锁")
         } else {
             lockPendingUntil = nil
             phase = .idle
@@ -195,7 +195,7 @@ final class AutoLock {
     private func linkLost() {
         stopWatching()
         guard isOn else { return }
-        link.note("Auto-lock: link lost while \(phase.name)")
+        link.note("自动上锁：\(phase.name)时失去蓝牙连接")
         if phase != .done, !otherPhoneLeads() { checkLeftUnlocked() }
         nextDoorCheck = nil
         switch phase {
@@ -245,13 +245,13 @@ final class AutoLock {
             strongSince = since
             if now.timeIntervalSince(since) >= Self.nearHold {
                 phase = .near
-                link.note("Auto-lock: you're at the car (\(Int(value)) dBm)")
+                link.note("自动上锁：你在车旁（\(Int(value)) dBm）")
             }
 
         case .near:
             if value < threshold - Self.hysteresis {
                 phase = .leaving(since: now)
-                link.note("Auto-lock: signal weak (\(Int(value)) dBm), you may be leaving")
+                link.note("自动上锁：信号变弱（\(Int(value)) dBm），可能正在离开")
             }
 
         case .leaving(let since):
@@ -269,7 +269,7 @@ final class AutoLock {
             if now > until {
                 lockPendingUntil = nil
                 phase = .idle
-                link.note("Auto-lock: reconnect window passed; not locking")
+                link.note("自动上锁：重连窗口已过，不执行上锁")
             } else if value >= threshold {
                 lockPendingUntil = nil
                 phase = .near
@@ -287,7 +287,7 @@ final class AutoLock {
                 phase = .done
                 nextDoorCheck = nil
                 stopWatching()
-                link.note("Auto-lock: the door stayed open; not locking")
+                link.note("自动上锁：车门一直开着，不执行上锁")
                 CarNotifications.post("离车时未能上锁：车门仍开着。")
             } else if let next = nextDoorCheck, now >= next {
                 nextDoorCheck = nil
@@ -309,7 +309,7 @@ final class AutoLock {
         checking = true
         lockPendingUntil = nil
         let recheck = if case .doorOpen = phase { true } else { false }
-        if !recheck { link.note("Auto-lock: you've walked away (\(signal) dBm), checking the car") }
+        if !recheck { link.note("自动上锁：你已走远（\(signal) dBm），正在检查车辆") }
         Task {
             let reason = await vetoReason(refresh: recheck)
             checking = false
@@ -322,7 +322,7 @@ final class AutoLock {
                     phase = .doorOpen(until: Date().addingTimeInterval(Self.doorWait))
                     countdown = nil
                     nextDoorCheck = Date()
-                    link.note("Auto-lock: a door is open; locking once it's shut (up to 2 min)")
+                    link.note("自动上锁：车门开着，关闭后自动上锁（最长等 2 分钟）")
                 }
                 return
             }
@@ -334,8 +334,8 @@ final class AutoLock {
                 if reason == Self.alreadyLocked {
                     link.note("自动上锁：车辆已上锁")
                 } else {
-                    link.note("Auto-lock: not locking, \(reason)")
-                    CarNotifications.post("Didn't lock the car as you walked away: \(reason).")
+                    link.note("自动上锁：不执行，\(reason)")
+                    CarNotifications.post("离车时未能上锁：\(reason)。")
                 }
                 return
             }
@@ -351,8 +351,8 @@ final class AutoLock {
         }
     }
 
-    private static let alreadyLocked = "already locked"
-    private static let doorOpen = "a door is open"
+    private static let alreadyLocked = "车辆已上锁"
+    private static let doorOpen = "车门开着"
 
     /// Asks the server, as the car sees it now, whether it was left unlocked; notifies if so.
     private func checkLeftUnlocked() {
@@ -366,7 +366,7 @@ final class AutoLock {
             defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
             let status = cachedStatus()
             guard link.state != .ready else {
-                link.note("Auto-lock: reconnected to the car; skipping the left-unlocked check")
+                link.note("自动上锁：已重连车辆，跳过未锁检查")
                 return
             }
             guard let status, let at = status.receivedAt ?? status.updatedAt,
@@ -375,11 +375,11 @@ final class AutoLock {
                 return
             }
             if status.locked != false {
-                link.note("Auto-lock: the car is \(status.locked == true ? "locked" : "锁车状态未知")")
+                link.note("自动上锁：车辆处于\(status.locked == true ? "已上锁" : "未上锁")状态")
                 return
             }
             if status.powerOn == true || (status.speedKmh ?? 0) > 0 {
-                link.note("Auto-lock: the car is unlocked but on or moving; not notifying")
+                link.note("自动上锁：车辆未上锁且已上电或行驶中，不发送提醒")
                 return
             }
             leftUnlockedNoticeAt = Date()
@@ -387,8 +387,8 @@ final class AutoLock {
                 link.note("自动上锁：车辆未锁且车门开着")
                 CarNotifications.post("车辆未上锁且车门打开。")
             } else {
-                link.note("Auto-lock: the car was left unlocked; offering to lock it")
-                CarNotifications.postLeftUnlocked("The car is unlocked. Lock it through BYD's cloud?")
+                link.note("自动上锁：车辆未上锁，发送提醒")
+                CarNotifications.postLeftUnlocked("车辆未上锁。点击“上锁”尝试蓝牙上锁。")
             }
         }
     }

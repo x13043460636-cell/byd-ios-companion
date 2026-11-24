@@ -132,7 +132,7 @@ enum BleCrypto {
             CCOperation(kCCEncrypt), CCAlgorithm(kCCAlgorithmAES), options,
             key, key.count, iv, input, input.count, &out, out.count, &moved
         )
-        precondition(status == kCCSuccess && moved == input.count, "AES failed: \(status)")
+        precondition(status == kCCSuccess && moved == input.count, "AES 加密失败：\(status)")
         return out
     }
 
