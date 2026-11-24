@@ -30,12 +30,12 @@ final class AutoLock {
 
         var name: String {
             switch self {
-            case .idle: "waiting"
-            case .near: "at the car"
-            case .leaving: "leaving"
-            case .done: "done"
-            case .awaitingReconnect: "awaiting reconnect"
-            case .doorOpen: "waiting for a door"
+            case .idle: "等待中"
+            case .near: "在车旁"
+            case .leaving: "离开中"
+            case .done: "已完成"
+            case .awaitingReconnect: "等待重连"
+            case .doorOpen: "等待车门关闭"
             }
         }
 
@@ -95,7 +95,6 @@ final class AutoLock {
     private(set) var countdown: Int?
 
     private let link: BleCarLink
-    private let api: CarAPI
     /// Fallback when the server doesn't answer in time.
     private let cachedStatus: () -> CarStatus?
     /// Another phone is driving the car (it holds the server's lease): don't watch for a walk-away.
@@ -110,7 +109,7 @@ final class AutoLock {
     private var checking = false
     private var nextDoorCheck: Date?
 
-    init(link: BleCarLink, api: CarAPI, cachedStatus: @escaping () -> CarStatus?, otherPhoneLeads: @escaping () -> Bool = { false }) {
+    init(link: BleCarLink, cachedStatus: @escaping () -> CarStatus?, otherPhoneLeads: @escaping () -> Bool = { false }) {
         self.link = link
         self.api = api
         self.cachedStatus = cachedStatus
@@ -143,7 +142,7 @@ final class AutoLock {
         nextDoorCheck = nil
         stopWatching()
         phase = .idle
-        link.note("Auto-lock switched off")
+        link.note("自动上锁已关闭")
     }
 
     /// A lock or unlock was sent by hand: forget any walk-away in progress.
@@ -151,7 +150,7 @@ final class AutoLock {
         guard isOn else { return }
         switch phase {
         case .near, .leaving, .awaitingReconnect, .doorOpen:
-            link.note("Auto-lock: reset by a manual command")
+            link.note("自动上锁：已被手动指令重置")
             lockPendingUntil = nil
             nextDoorCheck = nil
             resetSignal()
@@ -163,16 +162,16 @@ final class AutoLock {
 
     var statusText: String {
         guard link.state == .ready else {
-            if case .awaitingReconnect = phase { return "Lost the car's signal · locks if it comes back within 2 min" }
-            return "Not connected to the car"
+            if case .awaitingReconnect = phase { return "丢失车辆信号 · 2 分钟内回来则上锁" }
+            return "未连接车辆"
         }
         switch phase {
-        case .idle: return "Waiting to see you at the car"
-        case .near: return "At the car"
+        case .idle: return "等待你在车旁出现"
+        case .near: return "在车旁"
         case .leaving: return "Walking away · locks in \(countdown ?? Int(Self.holdTime)) s"
-        case .done: return "Done for this visit"
-        case .awaitingReconnect: return "Reconnected · checking the signal"
-        case .doorOpen: return "A door is open · locks once it's shut"
+        case .done: return "本次到访结束"
+        case .awaitingReconnect: return "已重连 · 检查信号中"
+        case .doorOpen: return "车门开着 · 关闭后自动上锁"
         }
     }
 
@@ -260,7 +259,7 @@ final class AutoLock {
             if value >= threshold {
                 phase = .near
                 countdown = nil
-                link.note("Auto-lock: you're back at the car")
+                link.note("自动上锁：你已回到车旁")
                 return
             }
             let remaining = max(Self.holdTime - now.timeIntervalSince(since), cooldownRemaining(at: now))
@@ -275,7 +274,7 @@ final class AutoLock {
             } else if value >= threshold {
                 lockPendingUntil = nil
                 phase = .near
-                link.note("Auto-lock: you came back to the car")
+                link.note("自动上锁：你回到了车旁")
             } else if readings >= 3, cooldownRemaining(at: now) <= 0 {
                 lock(signal: Int(value))
             }
@@ -284,13 +283,13 @@ final class AutoLock {
             if value >= threshold {
                 phase = .near
                 nextDoorCheck = nil
-                link.note("Auto-lock: you're back at the car")
+                link.note("自动上锁：你已回到车旁")
             } else if now > until {
                 phase = .done
                 nextDoorCheck = nil
                 stopWatching()
                 link.note("Auto-lock: the door stayed open; not locking")
-                CarNotifications.post("Didn't lock the car as you walked away: a door is still open.")
+                CarNotifications.post("离车时未能上锁：车门仍开着。")
             } else if let next = nextDoorCheck, now >= next {
                 nextDoorCheck = nil
                 lock(signal: Int(value))
@@ -334,18 +333,17 @@ final class AutoLock {
             stopWatching()
             if let reason {
                 if reason == Self.alreadyLocked {
-                    link.note("Auto-lock: the car is already locked")
+                    link.note("自动上锁：车辆已上锁")
                 } else {
                     link.note("Auto-lock: not locking, \(reason)")
                     CarNotifications.post("Didn't lock the car as you walked away: \(reason).")
                 }
                 return
             }
-            if recheck { link.note("Auto-lock: the door is shut now") }
+            if recheck { link.note("自动上锁：车门已关闭") }
             do {
                 try await link.send(.lock)
-                if AppConfig.demo { DemoCar.apply(.lock) }
-                CarNotifications.post("Locked as you walked away")
+                CarNotifications.post("离车已自动上锁")
             } catch BleCarLink.CommandError.unconfirmed {
                 CarNotifications.post("Sent lock as you walked away, but the car didn't confirm. Check the car.")
             } catch {
@@ -379,7 +377,7 @@ final class AutoLock {
                 return
             }
             if status.locked != false {
-                link.note("Auto-lock: the car is \(status.locked == true ? "locked" : "of unknown lock state")")
+                link.note("Auto-lock: the car is \(status.locked == true ? "locked" : "锁车状态未知")")
                 return
             }
             if status.powerOn == true || (status.speedKmh ?? 0) > 0 {
@@ -388,8 +386,8 @@ final class AutoLock {
             }
             leftUnlockedNoticeAt = Date()
             if status.anyDoorOpen == true || status.trunkOpen == true {
-                link.note("Auto-lock: the car was left unlocked with a door open")
-                CarNotifications.post("The car is unlocked and a door is open.")
+                link.note("自动上锁：车辆未锁且车门开着")
+                CarNotifications.post("车辆未上锁且车门打开。")
             } else {
                 link.note("Auto-lock: the car was left unlocked; offering to lock it")
                 CarNotifications.postLeftUnlocked("The car is unlocked. Lock it through BYD's cloud?")
@@ -400,24 +398,13 @@ final class AutoLock {
     /// Why not to lock, according to a fresh server report; nil to go ahead.
     /// `refresh` asks the car for a new report first, falling back to the server's last one.
     private func vetoReason(refresh: Bool = false) async -> String? {
-        var status = refresh ? await fetchStatus(refresh: true, timeout: Self.recheckTimeout) : nil
-        if status == nil { status = await fetchStatus() }
-        guard let status = status ?? cachedStatus(), let at = status.receivedAt ?? status.updatedAt,
+        guard let status = cachedStatus(), let at = status.receivedAt ?? status.updatedAt,
               Date().timeIntervalSince(at) < Self.statusFreshness else { return nil }
-        if status.powerOn == true { return "the car is on" }
-        if let speed = status.speedKmh, speed > 0 { return "the car is moving" }
+        if status.powerOn == true { return "车辆已上电" }
+        if let speed = status.speedKmh, speed > 0 { return "车辆行驶中" }
         if status.anyDoorOpen == true || status.trunkOpen == true { return Self.doorOpen }
         if status.locked == true { return Self.alreadyLocked }
         return nil
     }
 
-    private func fetchStatus(refresh: Bool = false, timeout: TimeInterval = AutoLock.statusTimeout) async -> CarStatus? {
-        let fetch = Task { try? await api.status(refresh: refresh) }
-        let limit = Task {
-            try? await Task.sleep(for: .seconds(timeout))
-            fetch.cancel()
-        }
-        defer { limit.cancel() }
-        return await fetch.value
-    }
 }

@@ -29,7 +29,7 @@ struct CarWidgetView: View {
                 Text(AppConfig.displayName)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Theme.text)
-                Text(entry.offline ? "Can't reach the server. Open the app to check the connection." : "Open the app once to load your car.")
+                Text(entry.offline ? "无法连接云端服务。请打开 App 查看。" : "请先打开一次 App 加载车辆。")
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.muted)
             }
@@ -155,12 +155,12 @@ struct CarWidgetView: View {
         if s.acOn == true { parts.append("A/C on") }
         if let at = s.updatedAt {
             if entry.offline {
-                parts.append("Last update " + at.formatted(.relative(presentation: .numeric)))
+                parts.append("最后更新 " + at.formatted(.relative(presentation: .numeric)))
             } else {
                 parts.append(at.formatted(date: .omitted, time: .shortened))
             }
         } else if entry.offline {
-            parts.append("Last update unknown")
+            parts.append("最后更新时间未知")
         }
         return parts.joined(separator: " · ")
     }
@@ -207,8 +207,8 @@ struct CarWidgetView: View {
             }
         }
         .buttonStyle(WidgetKeyStyle(active: active || loading, dimmed: othersBusy))
-        .accessibilityLabel(loading ? "Sending" : title)
-        .accessibilityHint(bluetooth ? "Opens the app and sends over Bluetooth" : "")
+        .accessibilityLabel(loading ? "发送中" : title)
+        .accessibilityHint(bluetooth ? "打开应用并通过蓝牙发送" : "")
     }
 }
 

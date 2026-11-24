@@ -106,15 +106,15 @@ enum CarCommand: String {
 
     var label: String {
         switch self {
-        case .lock: "Lock"
-        case .unlock: "Unlock"
-        case .trunkOpen: "Open trunk"
-        case .trunkClose: "Close trunk"
-        case .windowsOpen: "Open windows"
-        case .windowsClose: "Close windows"
-        case .acStart: "Start A/C"
-        case .acStop: "Stop A/C"
-        case .honk: "Honk"
+        case .lock: "上锁"
+        case .unlock: "解锁"
+        case .trunkOpen: "打开后备箱"
+        case .trunkClose: "关闭后备箱"
+        case .windowsOpen: "打开车窗"
+        case .windowsClose: "关闭车窗"
+        case .acStart: "开启空调"
+        case .acStop: "关闭空调"
+        case .honk: "鸣笛"
         }
     }
 

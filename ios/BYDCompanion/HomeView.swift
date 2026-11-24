@@ -1,21 +1,16 @@
 import SwiftUI
 
+/// 纯蓝牙模式首页：锁车/后备箱/鸣笛 + 走近自动解锁与离车自动上锁。
 struct HomeView: View {
     @State private var model = CarViewModel()
     @State private var showingBluetooth = false
-    @State private var showingTrips = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
-                // Until the server answers, show the last known car (or a placeholder) dimmed and
-                // untouchable; the chip under the range says it's being read.
-                content(model.status ?? .sample)
-                    .redacted(reason: (model.status == nil && AppConfig.cloudEnabled) ? .placeholder : [])
-                    .disabled(model.stale && AppConfig.cloudEnabled)
-                    .animation(.easeInOut(duration: 0.25), value: model.stale)
+                content
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -23,21 +18,16 @@ struct HomeView: View {
         }
         .scrollIndicators(.hidden)
         .background(Theme.background.ignoresSafeArea())
-        .refreshable { await model.load(refresh: true) }
         .safeAreaInset(edge: .bottom) { errorBanner }
         .onChange(of: scenePhase, initial: true) { _, phase in
             if phase == .active {
                 model.ble.connect()
                 model.runHandoff()
-                Task { await model.loadOnOpen() }
             }
-        }
-        .sheet(isPresented: $showingTrips) {
-            TripsSheet(store: model.trips, logger: model.tripLogger)
         }
         .sheet(isPresented: $showingBluetooth) {
             BluetoothSheet(link: model.ble, autoUnlock: model.autoUnlock, autoLock: model.autoLock, importing: model.importingKey) {
-                Task { await model.importBleKey() }
+                // 纯蓝牙模式：不提供云端导入，钥匙用“手动导入钥匙”表单。
             }
         }
     }
@@ -45,11 +35,11 @@ struct HomeView: View {
     private var header: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(carName)
+                Text("BYD 车伴")
                     .font(.system(size: 12, weight: .semibold))
                     .tracking(1.4)
                     .foregroundStyle(Theme.muted)
-                Text(headline)
+                Text("蓝牙控车")
                     .font(.system(size: 26, weight: .bold))
                     .foregroundStyle(Theme.text)
                 BluetoothChip(link: model.ble, importing: model.importingKey) {
@@ -62,133 +52,101 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private func content(_ s: CarStatus) -> some View {
+    private var content: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("电量").font(.system(size: 13)).foregroundStyle(Theme.muted)
-                    (Text("\(Int((s.batteryPercent ?? 0).rounded()))")
-                        .font(.system(size: 64, weight: .bold))
-                        .foregroundColor(Theme.text)
-                        + Text("%").font(.system(size: 28, weight: .bold)).foregroundColor(Theme.muted))
-                }
-                .opacity(dim)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("总续航").font(.system(size: 13)).foregroundStyle(Theme.muted)
-                    (Text("\(Int((s.rangeTotalKm ?? 0).rounded())) ")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundColor(Theme.text)
-                        + Text("公里").font(.system(size: 15)).foregroundColor(Theme.muted))
-                }
-                .opacity(dim)
-                statusPill(s)
+                bleModeCard
+                statusPill
             }
             Spacer(minLength: 8)
             CarTopView(
-                locked: s.locked,
-                trunkOpen: s.trunkOpen ?? false,
-                windowsOpen: s.windowsOpen ?? false,
-                acOn: s.acOn ?? false
+                locked: model.lockClosed,
+                trunkOpen: model.trunkOpenState,
+                windowsOpen: false,
+                acOn: false
             )
-            .opacity(dim)
         }
 
-        Group {
-            RangeBar(electricKm: s.rangeElectricKm ?? 0, fuelKm: s.rangeFuelKm ?? 0)
+        LockButton(locked: model.lockClosed, busy: model.pending.contains(.lock),
+                   bluetooth: overBluetooth(.lock), action: model.toggleLock)
 
-            LockButton(locked: s.locked ?? true, busy: model.pending.contains(.lock),
-                       bluetooth: overBluetooth(.lock), action: model.toggleLock)
-
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                ControlTile(
-                    title: "Trunk",
-                    systemImage: "car.side.rear.open",
-                    detail: s.trunkOpen == true ? "已打开" : nil,
-                    active: s.trunkOpen == true,
-                    busy: model.pending.contains(.trunk),
-                    bluetooth: overBluetooth(s.trunkOpen == true ? .trunkClose : .trunkOpen),
-                    action: model.toggleTrunk
-                )
-                ControlTile(
-                    title: "Windows",
-                    systemImage: "car.window.left",
-                    detail: s.windowsOpen == true ? "通风 10%" : nil,
-                    active: s.windowsOpen == true,
-                    busy: model.pending.contains(.windows),
-                    action: model.toggleWindows
-                )
-                ControlTile(
-                    title: "A/C",
-                    systemImage: "snowflake",
-                    detail: s.acOn == true ? "开启 · 21°" : nil,
-                    active: s.acOn == true,
-                    busy: model.pending.contains(.ac),
-                    action: model.toggleAC
-                )
-                ControlTile(
-                    title: "Honk",
-                    systemImage: "speaker.wave.3.fill",
-                    detail: model.pending.contains(.honk) ? "鸣笛&闪灯…" : nil,
-                    active: model.pending.contains(.honk),
-                    bluetooth: overBluetooth(.honk),
-                    action: model.honk
-                )
-            }
-
-            TripsCard(store: model.trips, drivingSince: model.tripLogger.drivingSince) { showingTrips = true }
-
-            TyreCard(tyres: s.tyresBar, odometerKm: s.odometerKm)
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+            ControlTile(
+                title: "后备箱",
+                systemImage: "car.side.rear.open",
+                detail: model.trunkOpenState ? "已打开" : nil,
+                active: model.trunkOpenState,
+                busy: model.pending.contains(.trunk),
+                bluetooth: overBluetooth(.trunkOpen),
+                action: model.toggleTrunk
+            )
+            ControlTile(
+                title: "鸣笛",
+                systemImage: "speaker.wave.3.fill",
+                detail: model.pending.contains(.honk) ? "鸣笛&闪灯…" : nil,
+                active: model.pending.contains(.honk),
+                bluetooth: overBluetooth(.honk),
+                action: model.honk
+            )
         }
-        .opacity(dim)
+
+        bleFeaturesCard
     }
 
-    /// Last-known information is faded until the server confirms it.
-    private var dim: Double { (model.stale && AppConfig.cloudEnabled) ? 0.45 : 1 }
-
-    /// Whether a key's next command will go over the Bluetooth key rather than the cloud.
-    private func overBluetooth(_ command: CarCommand) -> Bool {
-        model.ble.state == .ready && command.worksOverBluetooth
-    }
-
-    @ViewBuilder
-    private func statusPill(_ s: CarStatus) -> some View {
-        if model.isRefreshing && (model.stale || model.readingCar) {
-            chip {
-                ProgressView().controlSize(.mini).tint(Theme.text)
-                Text("正在读取车辆状态…")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(hex: 0xC9D1D9))
-            }
-            .unredacted()
-        } else {
-            lockPill(s)
+    /// 纯蓝牙模式说明卡。
+    private var bleModeCard: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "wave.3.right.circle").foregroundStyle(Theme.accent)
+            Text("纯蓝牙模式：靠近车辆自动连接并解锁，离车断开自动上锁")
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.muted)
+            Spacer(minLength: 0)
         }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.cardBorder))
     }
 
-    private func lockPill(_ s: CarStatus) -> some View {
-        var open: [String] = []
-        if s.locked == false { open.append("已解锁") }
-        if s.trunkOpen == true { open.append("后备箱打开") }
-        if s.windowsOpen == true { open.append("车窗打开") }
-        let secure = open.isEmpty && s.locked == true
-        let text = secure ? "已上锁" : (open.isEmpty ? "锁车状态未知" : open.joined(separator: " · "))
-        let time = s.updatedAt.map { " · " + $0.formatted(date: .omitted, time: .shortened) } ?? ""
-
-        return chip {
-            Circle().fill(secure ? Theme.accent : Theme.warning).frame(width: 8, height: 8)
-            Text(text + time)
+    /// 乐观锁车状态徽章。
+    private var statusPill: some View {
+        chip {
+            Circle().fill(model.lockClosed ? Theme.accent : Theme.warning).frame(width: 8, height: 8)
+            Text(model.lockClosed ? "已上锁（按本机最后一次指令）" : "已解锁（按本机最后一次指令）")
                 .font(.system(size: 12))
                 .foregroundStyle(Color(hex: 0xC9D1D9))
                 .lineLimit(2)
         }
     }
 
-    private func chip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        HStack(spacing: 6, content: content)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(Theme.card))
-            .overlay(Capsule().strokeBorder(Theme.cardBorder))
+    /// 自动解锁/上锁功能卡，点击打开蓝牙钥匙页配置。
+    private var bleFeaturesCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "figure.walk")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 36, height: 36)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.cardBorder))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("走近自动解锁 · 离车自动上锁")
+                    Text("在“蓝牙钥匙”里开启并设置距离阈值").font(.footnote).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Button("设置") { showingBluetooth = true }
+                    .font(.system(size: 14, weight: .semibold))
+                    .tint(Theme.accent)
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.cardBorder))
+        }
+    }
+
+    private var dim: Double { 1 }
+
+    /// 蓝牙就绪时该指令可以直连发送。
+    private func overBluetooth(_ command: CarCommand) -> Bool {
+        model.ble.state == .ready && command.worksOverBluetooth
     }
 
     @ViewBuilder
@@ -200,9 +158,8 @@ struct HomeView: View {
                 Spacer(minLength: 0)
                 Button {
                     model.dismissError()
-                    if model.stale { Task { await model.load() } }
                 } label: {
-                    Text(model.stale ? "Retry" : "OK").font(.system(size: 14, weight: .semibold))
+                    Text("好").font(.system(size: 14, weight: .semibold))
                 }
                 .tint(Theme.accent)
             }
@@ -214,18 +171,11 @@ struct HomeView: View {
         }
     }
 
-    private var carName: String {
-        let name = model.status?.model ?? "BYD"
-        guard let plate = model.status?.plate, !plate.isEmpty else { return name.uppercased() }
-        return "\(name.uppercased()) · \(plate)"
-    }
-
-    private var headline: String {
-        guard let s = model.status, !model.stale else {
-            return AppConfig.cloudEnabled ? "连接中…" : "蓝牙模式"
-        }
-        if s.acOn == true { return "空调开启" }
-        if s.charging == true { return "充电中" }
-        return "已停放"
+    private func chip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 6, content: content)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(Theme.card))
+            .overlay(Capsule().strokeBorder(Theme.cardBorder))
     }
 }

@@ -26,8 +26,8 @@ struct BluetoothChip: View {
         }
         .buttonStyle(RaisedButtonStyle(active: active, cornerRadius: 14))
         .accessibilityLabel("蓝牙")
-        .accessibilityValue(link.hasKey ? link.state.label : "Key not set up")
-        .accessibilityHint("Shows Bluetooth details")
+        .accessibilityValue(link.hasKey ? link.state.label : "未导入钥匙")
+        .accessibilityHint("显示蓝牙详情")
     }
 }
 
@@ -109,7 +109,7 @@ struct BluetoothSheet: View {
                     Text(autoUnlockSubtitle).font(.footnote).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                Toggle("Unlock as I walk up", isOn: Binding(
+                Toggle("走近时自动解锁", isOn: Binding(
                     get: { autoUnlock.isOn },
                     set: { on in
                         if !on {
@@ -132,7 +132,7 @@ struct BluetoothSheet: View {
                         Spacer()
                         Text("≈ \(AutoUnlock.label(autoUnlock.distance))").fontWeight(.semibold).foregroundStyle(Theme.accent)
                     }
-                    Picker("Unlock distance", selection: $autoUnlock.distance) {
+                    Picker("解锁距离", selection: $autoUnlock.distance) {
                         ForEach(AutoUnlock.distances, id: \.self) { Text(AutoUnlock.label($0)).tag($0) }
                     }
                     .pickerStyle(.segmented)
@@ -189,11 +189,11 @@ struct BluetoothSheet: View {
                     .background(RoundedRectangle(cornerRadius: 10).fill(Theme.cardBorder))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("离车时自动上锁")
-                    Text(autoLock.isOn ? "On · beyond about \(AutoUnlock.label(autoLock.distance))" : "Off")
+                    Text(autoLock.isOn ? "开 · 约 \(AutoUnlock.label(autoLock.distance)) 之外" : "关")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                Toggle("Lock as I walk away", isOn: Binding(
+                Toggle("离车时自动上锁", isOn: Binding(
                     get: { autoLock.isOn },
                     set: { $0 ? autoLock.enable() : autoLock.disable() }
                 ))
@@ -208,7 +208,7 @@ struct BluetoothSheet: View {
                         Spacer()
                         Text("≈ \(AutoUnlock.label(autoLock.distance))").fontWeight(.semibold).foregroundStyle(Theme.accent)
                     }
-                    Picker("Lock distance", selection: $autoLock.distance) {
+                    Picker("上锁距离", selection: $autoLock.distance) {
                         ForEach(AutoLock.distances, id: \.self) { Text(AutoUnlock.label($0)).tag($0) }
                     }
                     .pickerStyle(.segmented)
@@ -229,8 +229,8 @@ struct BluetoothSheet: View {
     }
 
     private var autoUnlockSubtitle: String {
-        guard autoUnlock.isOn else { return "Off" }
-        guard autoUnlock.carLocation != nil else { return "On · connect once to learn where it's parked" }
+        guard autoUnlock.isOn else { return "关" }
+        guard autoUnlock.carLocation != nil else { return "开 · 连接一次以记录停车位置" }
         return "On · within about \(AutoUnlock.label(autoUnlock.distance))"
     }
 }
@@ -254,9 +254,9 @@ struct AutoUnlockIntro: View {
                     .foregroundStyle(Color(hex: 0xC9D1D9))
             }
             VStack(alignment: .leading, spacing: 14) {
-                point("mappin.and.ellipse", "Wakes up near the car.", "iOS tells the app when you get close to where the car is parked, even if the app is closed.")
-                point("wifi", "Unlocks only when you're close.", "Bluetooth checks you're within the distance you choose, after you've been away.")
-                point("checkmark.shield", "Stays on your iPhone.", "Your location is never sent anywhere.")
+                point("mappin.and.ellipse", "靠近车辆时自动唤醒。", "iOS tells the app when you get close to where the car is parked, even if the app is closed.")
+                point("wifi", "仅在近距离解锁。", "Bluetooth checks you're within the distance you choose, after you've been away.")
+                point("checkmark.shield", "所有数据仅保存在本机。", "你的位置信息不会被发送到任何地方。")
             }
             Spacer(minLength: 0)
             VStack(spacing: 10) {

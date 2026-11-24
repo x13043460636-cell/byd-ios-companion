@@ -16,7 +16,6 @@ struct CarEntry: TimelineEntry {
 /// the widget (CarWidgetIntents.swift) note what they changed in `RecentCommands`
 /// so the next refresh shows the expected state even if BYD's cache lags.
 struct CarProvider: TimelineProvider {
-    private let api = CarAPI()
 
     func placeholder(in context: Context) -> CarEntry {
         CarEntry(date: .now, status: .sample)
@@ -61,18 +60,12 @@ struct CarProvider: TimelineProvider {
                 RecentCommands.pending = nil
             }
         }
-        do {
-            var status = try await api.status()
-            RecentCommands.overlay(on: &status)
-            return CarEntry(date: .now, status: status, bluetooth: bluetooth)
-        } catch {
-            var status = RecentCommands.lastKnown
-            if var s = status {
-                RecentCommands.overlay(on: &s)
-                status = s
-            }
-            return CarEntry(date: .now, status: status, offline: true, bluetooth: bluetooth)
+        var status = RecentCommands.lastKnown
+        if var s = status {
+            RecentCommands.overlay(on: &s)
+            status = s
         }
+        return CarEntry(date: .now, status: status, offline: false, bluetooth: bluetooth)
     }
 
     /// The app says its Bluetooth session is up, and iOS confirms the car is still connected.
@@ -88,10 +81,10 @@ enum InflightCommand {
 
     static func start(_ command: CarCommand) {
         RecentCommands.pending = command
+        // 纯蓝牙模式：小组件把指令交给 App，由 App 的 BLE 会话发送。
+        CarLinkState.handOff(command)
         task = Task {
-            if (try? await CarAPI().run(command)) == true {
-                RecentCommands.record(command)
-            }
+            RecentCommands.record(command)
             RecentCommands.pending = nil
             task = nil
             WidgetCenter.shared.reloadTimelines(ofKind: CarWidget.kind)

@@ -126,7 +126,7 @@ final class AutoUnlock: NSObject {
         defaults.set(false, forKey: Keys.wanted)
         armedAt = nil
         stopWatching()
-        link.note("Auto-unlock switched off")
+        link.note("自动解锁已关闭")
         updateRegion()
     }
 
@@ -228,7 +228,7 @@ final class AutoUnlock: NSObject {
         Task {
             do {
                 try await link.send(.unlock)
-                CarNotifications.post("Unlocked as you walked up")
+                CarNotifications.post("走近已自动解锁")
             } catch BleCarLink.CommandError.unconfirmed {
                 CarNotifications.post("Sent unlock as you walked up, but the car didn't confirm. Check the car.")
             } catch {
@@ -250,7 +250,7 @@ enum CarNotifications {
 
     /// Registers the Lock button that `postLeftUnlocked` offers.
     static func registerActions() {
-        let lock = UNNotificationAction(identifier: lockAction, title: "Lock")
+        let lock = UNNotificationAction(identifier: lockAction, title: "上锁")
         let category = UNNotificationCategory(identifier: leftUnlockedCategory, actions: [lock], intentIdentifiers: [])
         UNUserNotificationCenter.current().setNotificationCategories([category])
     }
@@ -275,7 +275,7 @@ extension AutoUnlock: CLLocationManagerDelegate {
             authorization = manager.authorizationStatus
             switch authorization {
             case .authorizedWhenInUse where wanted && requesting:
-                // Second step: iOS offers "Change to Always Allow".
+                // Second step: iOS offers "改为“始终允许”".
                 manager.requestAlwaysAuthorization()
             case .authorizedAlways, .denied, .restricted:
                 requesting = false
@@ -308,18 +308,18 @@ extension AutoUnlock: CLLocationManagerDelegate {
             guard link.state != .ready else { return }
             // Likewise when the other phone is driving it (you're probably a passenger).
             guard !otherPhoneLeads() else {
-                link.note("Auto-unlock not armed: another phone is driving the car")
+                link.note("自动解锁未就绪：另一部手机在用车")
                 return
             }
             armedAt = Date()
-            link.note("Auto-unlock armed: you left the car's area")
+            link.note("自动解锁已就绪：你离开了车辆区域")
         }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
         MainActor.assumeIsolated {
             guard isOn, region.identifier == Self.regionID, armedAt != nil else { return }
-            link.note("Back near the car: connecting")
+            link.note("回到车旁：连接中")
             link.connect()
         }
     }

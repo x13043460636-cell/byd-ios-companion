@@ -22,13 +22,13 @@ final class BleCarLink: NSObject {
 
         var label: String {
             switch self {
-            case .noKey: "Bluetooth key not set up"
+            case .noKey: "蓝牙钥匙未配置"
             case .stopped: "Not looking for the car"
-            case .bluetoothOff: "Bluetooth is off"
+            case .bluetoothOff: "蓝牙已关闭"
             case .searching: "Looking for the car…"
             case .connecting: "Connecting…"
             case .authenticating: "Authenticating…"
-            case .ready: "Bluetooth ready"
+            case .ready: "蓝牙就绪"
             case .failed(let reason): reason
             }
         }
@@ -43,8 +43,8 @@ final class BleCarLink: NSObject {
 
         var errorDescription: String? {
             switch self {
-            case .notReady: "Bluetooth isn't connected to the car."
-            case .writeFailed: "Couldn't send the Bluetooth command."
+            case .notReady: "蓝牙未连接到车辆。"
+            case .writeFailed: "蓝牙指令发送失败。"
             case .rejected(let code): "The car refused the Bluetooth command (result \(code))."
             case .unconfirmed: "Sent over Bluetooth, but the car didn't confirm. Check the car before retrying."
             }
@@ -179,7 +179,7 @@ final class BleCarLink: NSObject {
     func stop() {
         disconnect()
         if key != nil { state = .stopped }
-        note("Stopped looking for the car")
+        note("已停止搜索车辆")
     }
 
     func disconnect() {
@@ -234,17 +234,17 @@ final class BleCarLink: NSObject {
     private func findCar() {
         if let saved = UserDefaults.standard.string(forKey: Self.savedPeripheralKey).flatMap(UUID.init),
            let known = central.retrievePeripherals(withIdentifiers: [saved]).first {
-            note("Reconnecting to the known car")
+            note("正在重连已配对车辆")
             open(known)
             return
         }
         if let connected = central.retrieveConnectedPeripherals(withServices: [Self.serviceID]).first {
-            note("Car already connected to this iPhone")
+            note("车辆已连接到本机")
             open(connected)
             return
         }
         state = .searching
-        note("Scanning for the car")
+        note("正在搜索车辆")
         // No service filter: not every BYD advertises its service UUID, and iOS hides MAC addresses.
         central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
     }
@@ -311,10 +311,10 @@ final class BleCarLink: NSObject {
                     $0.count >= 12 && $0[0] == BleCodec.responseRandomExchange && $0[1] == 0xD6
                 }
                 note("← random: keyState=\(random[2]) crc=\(random[11])")
-                guard random[11] == 1 else { throw AuthError("The car rejected the key exchange") }
+                guard random[11] == 1 else { throw AuthError("车辆拒绝了密钥交换") }
                 guard random[2] == 1 else { throw AuthError("Bluetooth key isn't active in the car (state \(random[2]))") }
                 guard let newSession = BleSession(dkeyHex: key.dkey, vehicleRandom: Array(random[3..<11]), appRandom: appRandom) else {
-                    throw AuthError("The stored Bluetooth key is invalid")
+                    throw AuthError("存储的蓝牙钥匙无效")
                 }
                 session = newSession
                 try await Task.sleep(for: .milliseconds(180))
@@ -334,12 +334,12 @@ final class BleCarLink: NSObject {
                 readySince = Date()
                 orphanedSession = false
                 UserDefaults.standard.set(true, forKey: Self.sessionOpenKey)
-                note("Bluetooth ready")
+                note("蓝牙就绪")
                 onReady.forEach { $0() }
             } catch is CancellationError {
                 return
             } catch {
-                let message = (error as? AuthError)?.message ?? "Bluetooth authentication failed"
+                let message = (error as? AuthError)?.message ?? "蓝牙认证失败"
                 note("✗ \(message)")
                 state = .failed(message)
                 if let peripheral { central.cancelPeripheralConnection(peripheral) }
@@ -400,7 +400,7 @@ extension BleCarLink: CBCentralManagerDelegate {
         MainActor.assumeIsolated {
             // iOS relaunched the app in the background; pick up the car it was connected to.
             guard let restored = (dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral])?.first else { return }
-            note("Restored by iOS in the background")
+            note("由 iOS 在后台恢复会话")
             peripheral = restored
             restored.delegate = self
             wantsConnection = key != nil
@@ -413,7 +413,7 @@ extension BleCarLink: CBCentralManagerDelegate {
             case .poweredOn:
                 if key != nil { connect() }
             case .unauthorized:
-                state = .failed("Bluetooth permission denied in Settings")
+                state = .failed("蓝牙权限被拒绝，请到系统设置中开启")
             default:
                 if key != nil { state = .bluetoothOff }
                 resetLink()
@@ -426,7 +426,7 @@ extension BleCarLink: CBCentralManagerDelegate {
         MainActor.assumeIsolated {
             guard self.peripheral == nil, !rejectedPeripherals.contains(peripheral.identifier),
                   looksLikeCar(advertisementData, name: peripheral.name) else { return }
-            note("Found \(peripheral.name ?? "unnamed device") (\(RSSI) dBm)")
+            note("Found \(peripheral.name ?? "未命名设备") (\(RSSI) dBm)")
             open(peripheral)
         }
     }
@@ -442,19 +442,19 @@ extension BleCarLink: CBCentralManagerDelegate {
         MainActor.assumeIsolated {
             note("✗ Connect failed: \(error?.localizedDescription ?? "unknown")")
             resetLink()
-            state = .failed("Couldn't connect to the car")
+            state = .failed("无法连接车辆")
         }
     }
 
     nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         MainActor.assumeIsolated {
-            note("Disconnected")
+            note("已断开连接")
             let wasFailure = if case .failed = state { true } else { false }
             let orphaned = orphanedSession && state != .ready && Date().timeIntervalSince(launchedAt) < Self.orphanWindow
             orphanedSession = false
             resetLink()
             if orphaned {
-                note("The session from before iOS relaunched the app has ended")
+                note("iOS 重启应用前的会话已结束")
                 onLinkLost.forEach { $0() }
             }
             if wantsConnection && !wasFailure {
@@ -489,7 +489,7 @@ extension BleCarLink: CBPeripheralDelegate {
             writeChar = service.characteristics?.first { $0.uuid == Self.writeID }
             notifyChar = service.characteristics?.first { $0.uuid == Self.notifyID }
             guard let notifyChar, writeChar != nil else {
-                state = .failed("The car's Bluetooth service is incomplete")
+                state = .failed("车辆蓝牙服务不完整")
                 return
             }
             peripheral.setNotifyValue(true, for: notifyChar)
@@ -501,7 +501,7 @@ extension BleCarLink: CBPeripheralDelegate {
             if let error {
                 // An encrypted characteristic triggers iOS pairing; a refusal lands here.
                 note("✗ Notifications: \(error.localizedDescription)")
-                state = .failed("Pairing with the car failed")
+                state = .failed("与车辆配对失败")
                 return
             }
             if characteristic.isNotifying { authenticate() }

@@ -21,21 +21,15 @@ final class AppServices {
     static let shared = AppServices()
 
     let ble: BleCarLink
-    let trips: TripStore
     let autoUnlock: AutoUnlock
     let autoLock: AutoLock
-    let tripLogger: TripLogger
 
     private init() {
         let ble = BleCarLink()
-        let trips = TripStore()
-        // Neither walk-up/walk-away feature acts while another phone is driving the car.
-        let autoUnlock = AutoUnlock(link: ble, otherPhoneLeads: { trips.otherPhoneLeads })
+        let autoUnlock = AutoUnlock(link: ble, otherPhoneLeads: { false })
         self.ble = ble
-        self.trips = trips
         self.autoUnlock = autoUnlock
-        autoLock = AutoLock(link: ble, api: CarAPI(), cachedStatus: StatusCache.load, otherPhoneLeads: { trips.otherPhoneLeads })
-        tripLogger = TripLogger(link: ble, store: trips, carLocation: { autoUnlock.carLocation })
+        autoLock = AutoLock(link: ble, cachedStatus: { nil }, otherPhoneLeads: { false })
     }
 }
 
@@ -48,12 +42,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
-        AppServices.shared.ble.note("App went to the background")
+        AppServices.shared.ble.note("应用退到后台")
         AppServices.shared.ble.refreshWidgetIfStale()
     }
 
     func applicationWillEnterForeground(_ application: UIApplication) {
-        AppServices.shared.ble.note("App came to the foreground")
+        AppServices.shared.ble.note("应用回到前台")
         AppServices.shared.ble.refreshWidgetIfStale()
     }
 
@@ -62,14 +56,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         guard response.actionIdentifier == CarNotifications.lockAction else { return }
         let link = AppServices.shared.ble
-        link.note("Lock tapped on the left-unlocked notification")
-        do {
-            let confirmed = try await CarAPI().run(.lock)
-            link.note("Cloud lock \(confirmed ? "confirmed" : "sent, not confirmed")")
-            CarNotifications.post(confirmed ? "Locked." : "Sent lock, but BYD didn't confirm it. Check the car.")
-        } catch {
-            link.note("Cloud lock failed: \(error.localizedDescription)")
-            CarNotifications.post("Couldn't lock the car: \(error.localizedDescription)")
+        link.note("点击了未锁提醒通知的上锁按钮")
+        Task { @MainActor in
+            do {
+                let confirmed = try await link.send(.lock)
+                CarNotifications.post(confirmed ? "已上锁。" : "已发送上锁指令，但车辆未确认。请检查车辆。")
+            } catch {
+                CarNotifications.post("蓝牙上锁失败：蓝牙未连接到车辆。")
+            }
         }
     }
 }

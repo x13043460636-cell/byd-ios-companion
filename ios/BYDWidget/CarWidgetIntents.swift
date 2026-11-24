@@ -5,7 +5,7 @@ import WidgetKit
 /// without leaving the Home Screen. A widget extension can't use the app's Bluetooth
 /// session; when that session is up the keys use CarBluetoothCommandIntent instead.
 struct CarCommandIntent: AppIntent {
-    static let title: LocalizedStringResource = "Send a car command"
+    static let title: LocalizedStringResource = "发送车辆指令"
     static let isDiscoverable = false
 
     @Parameter(title: "Command")
@@ -31,7 +31,7 @@ struct CarCommandIntent: AppIntent {
 /// the widget's keys while the app is connected (CarEntry.bluetooth). The app falls
 /// back to the cloud itself if the link has dropped by the time it opens.
 struct CarBluetoothCommandIntent: AppIntent {
-    static let title: LocalizedStringResource = "Send a car command over Bluetooth"
+    static let title: LocalizedStringResource = "通过蓝牙发送车辆指令"
     static let isDiscoverable = false
     static let openAppWhenRun = true
 

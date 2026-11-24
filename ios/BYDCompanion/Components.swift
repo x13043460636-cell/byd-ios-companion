@@ -43,7 +43,7 @@ struct ControlTile: View {
         .buttonStyle(RaisedButtonStyle(active: active))
         .disabled(busy)
         .accessibilityValue(detail ?? "")
-        .accessibilityHint(bluetooth ? "Sends over Bluetooth" : "")
+        .accessibilityHint(bluetooth ? "蓝牙直连发送" : "")
     }
 }
 
@@ -82,8 +82,8 @@ struct LockButton: View {
         }
         .buttonStyle(RaisedButtonStyle(active: !locked, tint: Theme.warning, cornerRadius: 24))
         .disabled(busy)
-        .accessibilityLabel(locked ? "Car is locked. Unlock" : "Car is unlocked. Lock")
-        .accessibilityHint(bluetooth ? "Sends over Bluetooth" : "")
+        .accessibilityLabel(locked ? "车辆已上锁，点击解锁" : "车辆已解锁，点击上锁")
+        .accessibilityHint(bluetooth ? "蓝牙直连发送" : "")
     }
 }
 
@@ -160,10 +160,10 @@ struct TyreCard: View {
             .font(.system(size: 13))
 
             HStack {
-                tyre("Front L", tyres.frontLeft)
-                tyre("Front R", tyres.frontRight)
-                tyre("Rear L", tyres.rearLeft)
-                tyre("Rear R", tyres.rearRight)
+                tyre("左前", tyres.frontLeft)
+                tyre("右前", tyres.frontRight)
+                tyre("左后", tyres.rearLeft)
+                tyre("右后", tyres.rearRight)
             }
         }
         .padding(16)
@@ -216,7 +216,7 @@ struct CarTopView: View {
         .animation(.easeInOut(duration: 0.25), value: [trunkOpen, windowsOpen, acOn, locked ?? true])
         .accessibilityElement()
         .accessibilityLabel(
-            "Car seen from above: \(locked == false ? "unlocked" : "locked"), trunk \(trunkOpen ? "open" : "closed"), windows \(windowsOpen ? "open" : "closed"), A/C \(acOn ? "on" : "off")"
+            "车辆俯视图：\(locked == false ? "已解锁" : "已上锁")，后备箱\(trunkOpen ? "打开" : "关闭")，车窗\(windowsOpen ? "打开" : "关闭")，空调\(acOn ? "开启" : "关闭")"
         )
     }
 
