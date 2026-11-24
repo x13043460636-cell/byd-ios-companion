@@ -56,7 +56,7 @@ enum Wbsk {
 
     /// 白盒 nibble 交叉混合（encryptBlock 内反复出现的组合模式）。
     /// a = (x高位 | y高位)；b = (y低位 | x低位)；out = (T[a] 高 nibble) | (T[b] >> 4)
-    @inline(__forceInline)
+    @inline(__always)
     static func nibmix(_ table: [UInt8], _ x: UInt8, _ y: UInt8) -> UInt8 {
         let a = (x & 0xF0) | (y >> 4)
         let b = ((y & 0x0F) << 4) | (x & 0x0F)
@@ -64,7 +64,7 @@ enum Wbsk {
     }
 
     /// put 闭包语义：UInt32 按大端写入 16 字节缓冲的 word p。
-    @inline(__forceInline)
+    @inline(__always)
     static func putWordBE(_ buffer: inout [UInt8], _ p: Int, _ word: UInt32) {
         buffer[4 * p + 0] = UInt8(truncatingIfNeeded: word >> 24)
         buffer[4 * p + 1] = UInt8(truncatingIfNeeded: word >> 16)
@@ -72,7 +72,7 @@ enum Wbsk {
         buffer[4 * p + 3] = UInt8(truncatingIfNeeded: word)
     }
 
-    @inline(__forceInline)
+    @inline(__always)
     static func wordLE(_ table: [UInt8], _ index: Int) -> UInt32 {
         let o = index * 4
         return UInt32(table[o]) | (UInt32(table[o + 1]) << 8) | (UInt32(table[o + 2]) << 16) | (UInt32(table[o + 3]) << 24)
