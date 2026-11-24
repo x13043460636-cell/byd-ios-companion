@@ -1,0 +1,43 @@
+name: Build unsigned IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: xcodebuild -version && xcrun simctl list runtimes | head -5
+
+      - name: Build (unsigned archive)
+        run: |
+          xcodebuild \
+            -project ios/BYDCompanion.xcodeproj \
+            -scheme BYDCompanion \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/BYDCompanion.xcarchive \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_ENTITLEMENTS=""
+
+      - name: Package IPA
+        run: |
+          mkdir -p build/Payload
+          cp -R "build/BYDCompanion.xcarchive/Products/Applications/BYDCompanion.app" build/Payload/
+          cd build
+          zip -qry BYDCompanion-unsigned.ipa Payload
+          ls -la BYDCompanion-unsigned.ipa
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BYDCompanion-unsigned-ipa
+          path: build/BYDCompanion-unsigned.ipa
+          retention-days: 14
