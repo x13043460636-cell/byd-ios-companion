@@ -13,8 +13,8 @@ struct HomeView: View {
                 // Until the server answers, show the last known car (or a placeholder) dimmed and
                 // untouchable; the chip under the range says it's being read.
                 content(model.status ?? .sample)
-                    .redacted(reason: model.status == nil ? .placeholder : [])
-                    .disabled(model.stale)
+                    .redacted(reason: (model.status == nil && AppConfig.cloudEnabled) ? .placeholder : [])
+                    .disabled(model.stale && AppConfig.cloudEnabled)
                     .animation(.easeInOut(duration: 0.25), value: model.stale)
             }
             .padding(.horizontal, 20)
@@ -103,7 +103,7 @@ struct HomeView: View {
                 ControlTile(
                     title: "Trunk",
                     systemImage: "car.side.rear.open",
-                    detail: s.trunkOpen == true ? "Open" : nil,
+                    detail: s.trunkOpen == true ? "已打开" : nil,
                     active: s.trunkOpen == true,
                     busy: model.pending.contains(.trunk),
                     bluetooth: overBluetooth(s.trunkOpen == true ? .trunkClose : .trunkOpen),
@@ -112,7 +112,7 @@ struct HomeView: View {
                 ControlTile(
                     title: "Windows",
                     systemImage: "car.window.left",
-                    detail: s.windowsOpen == true ? "Vent 10%" : nil,
+                    detail: s.windowsOpen == true ? "通风 10%" : nil,
                     active: s.windowsOpen == true,
                     busy: model.pending.contains(.windows),
                     action: model.toggleWindows
@@ -120,7 +120,7 @@ struct HomeView: View {
                 ControlTile(
                     title: "A/C",
                     systemImage: "snowflake",
-                    detail: s.acOn == true ? "On · 21°" : nil,
+                    detail: s.acOn == true ? "开启 · 21°" : nil,
                     active: s.acOn == true,
                     busy: model.pending.contains(.ac),
                     action: model.toggleAC
@@ -128,7 +128,7 @@ struct HomeView: View {
                 ControlTile(
                     title: "Honk",
                     systemImage: "speaker.wave.3.fill",
-                    detail: model.pending.contains(.honk) ? "Horn & lights…" : nil,
+                    detail: model.pending.contains(.honk) ? "鸣笛&闪灯…" : nil,
                     active: model.pending.contains(.honk),
                     bluetooth: overBluetooth(.honk),
                     action: model.honk
@@ -143,7 +143,7 @@ struct HomeView: View {
     }
 
     /// Last-known information is faded until the server confirms it.
-    private var dim: Double { model.stale ? 0.45 : 1 }
+    private var dim: Double { (model.stale && AppConfig.cloudEnabled) ? 0.45 : 1 }
 
     /// Whether a key's next command will go over the Bluetooth key rather than the cloud.
     private func overBluetooth(_ command: CarCommand) -> Bool {
@@ -167,11 +167,11 @@ struct HomeView: View {
 
     private func lockPill(_ s: CarStatus) -> some View {
         var open: [String] = []
-        if s.locked == false { open.append("Unlocked") }
-        if s.trunkOpen == true { open.append("Trunk open") }
-        if s.windowsOpen == true { open.append("Windows open") }
+        if s.locked == false { open.append("已解锁") }
+        if s.trunkOpen == true { open.append("后备箱打开") }
+        if s.windowsOpen == true { open.append("车窗打开") }
         let secure = open.isEmpty && s.locked == true
-        let text = secure ? "Locked" : (open.isEmpty ? "Lock state unknown" : open.joined(separator: " · "))
+        let text = secure ? "已上锁" : (open.isEmpty ? "锁车状态未知" : open.joined(separator: " · "))
         let time = s.updatedAt.map { " · " + $0.formatted(date: .omitted, time: .shortened) } ?? ""
 
         return chip {
@@ -221,9 +221,11 @@ struct HomeView: View {
     }
 
     private var headline: String {
-        guard let s = model.status, !model.stale else { return "Connecting…" }
-        if s.acOn == true { return "A/C on" }
-        if s.charging == true { return "Charging" }
-        return "Parked"
+        guard let s = model.status, !model.stale else {
+            return AppConfig.cloudEnabled ? "连接中…" : "蓝牙模式"
+        }
+        if s.acOn == true { return "空调开启" }
+        if s.charging == true { return "充电中" }
+        return "已停放"
     }
 }

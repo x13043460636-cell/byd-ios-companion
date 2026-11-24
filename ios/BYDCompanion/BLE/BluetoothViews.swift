@@ -45,7 +45,7 @@ struct BluetoothSheet: View {
         NavigationStack {
             List {
                 Section {
-                    LabeledContent("Status", value: link.hasKey ? link.state.label : "No key")
+                    LabeledContent("状态", value: link.hasKey ? link.state.label : "未导入钥匙")
                     if link.hasKey {
                         if [.searching, .connecting, .authenticating].contains(link.state) {
                             Button("停止搜索车辆", action: link.stop)
@@ -54,8 +54,9 @@ struct BluetoothSheet: View {
                         }
                         Button("删除蓝牙钥匙", role: .destructive) { link.removeKey() }
                     } else {
-                        Button(importing ? "Importing…" : "Import key from Mac server", action: importKey)
-                            .disabled(importing)
+                        ManualKeyEntry { key in
+                            do { try link.installKey(key) } catch { }
+                        }
                     }
                 } footer: {
                     Text("在车辆附近时，解锁/上锁/后备箱/鸣笛走蓝牙直连；其余功能走比亚迪云端。")
@@ -64,7 +65,7 @@ struct BluetoothSheet: View {
                     autoUnlockSection
                     autoLockSection
                 }
-                Section("Recent events") {
+                Section("最近事件") {
                     if link.log.isEmpty {
                         Text("暂无数据").foregroundStyle(.secondary)
                     }
@@ -286,6 +287,56 @@ struct AutoUnlockIntro: View {
                 .frame(width: 24)
             (Text(title).bold().foregroundColor(Theme.text) + Text(" " + detail).foregroundColor(Color(hex: 0xC9D1D9)))
                 .font(.system(size: 15))
+        }
+    }
+}
+
+
+// MARK: - 手动导入蓝牙钥匙（纯蓝牙模式：dkey 由 provision_ble_key.py 在本地获取）
+
+struct ManualKeyEntry: View {
+    let onInstall: (BleKey) -> Void
+    @State private var vin = ""
+    @State private var macAddress = ""
+    @State private var dkey = ""
+    @State private var keyNumber = "1"
+    @State private var installError: String?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Section("手动导入钥匙（扫码配对获取 dkey 后填入）") {
+            TextField("VIN（选填）", text: $vin)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+            TextField("车辆蓝牙 MAC（选填，如 AA:BB:CC:DD:EE:FF）", text: $macAddress)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+            TextField("dkey（16 进制串）", text: $dkey)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .font(.system(size: 13, design: .monospaced))
+            TextField("钥匙编号", text: $keyNumber)
+                .keyboardType(.numberPad)
+            if let installError {
+                Text(installError).font(.footnote).foregroundStyle(.red)
+            }
+            Button("导入并连接") {
+                let trimmed = dkey.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else {
+                    installError = "dkey 不能为空"
+                    return
+                }
+                let number = Int(keyNumber) ?? 1
+                let key = BleKey(vin: vin.trimmingCharacters(in: .whitespaces),
+                                 macAddress: macAddress.trimmingCharacters(in: .whitespaces).isEmpty
+                                     ? nil : macAddress.trimmingCharacters(in: .whitespaces).uppercased(),
+                                 dkey: trimmed.uppercased(),
+                                 keyNumber: number,
+                                 keyValidTo: nil)
+                onInstall(key)
+                installError = nil
+            }
+            .disabled(dkey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }
 }

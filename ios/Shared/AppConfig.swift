@@ -3,6 +3,8 @@ import Foundation
 /// Settings baked in at build time from ios/Config.xcconfig and Config.local.xcconfig.
 enum AppConfig {
     static let serverURL: URL? = info("ServerURL").flatMap(URL.init(string:))
+    /// 未配置 SERVER_URL 时进入纯蓝牙模式：不走云端，全部控车走 BLE。
+    static let cloudEnabled = serverURL != nil
     static let serverToken = info("ServerToken") ?? ""
     static let displayName = info("CFBundleDisplayName") ?? "BYD Companion"
     static let bundleID = Bundle.main.bundleIdentifier ?? "byd-companion"

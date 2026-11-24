@@ -27,6 +27,10 @@ final class CarViewModel {
     func importBleKey() async {
         importingKey = true
         defer { importingKey = false }
+        guard AppConfig.cloudEnabled else {
+            errorMessage = "未配置云端服务：请在蓝牙钥匙页使用“手动导入钥匙”。"
+            return
+        }
         do {
             try ble.installKey(try await api.bleKey())
         } catch {
@@ -40,6 +44,7 @@ final class CarViewModel {
     /// Shows the server's copy at once, then asks the car for a new report when that copy is old.
     func loadOnOpen() async {
         guard !isRefreshing else { return }
+        guard AppConfig.cloudEnabled else { return }
         await load()
         guard !stale, let updatedAt = status?.updatedAt,
               Date().timeIntervalSince(updatedAt) > Self.openRefreshAge else { return }
@@ -49,6 +54,11 @@ final class CarViewModel {
     }
 
     func load(refresh: Bool = false, syncTrips: Bool = true) async {
+        guard AppConfig.cloudEnabled else {
+            stale = false
+            errorMessage = nil
+            return
+        }
         isRefreshing = true
         defer { isRefreshing = false }
         // The trip log syncs alongside, never holding up the car's status.
@@ -164,10 +174,14 @@ final class CarViewModel {
                 // Not sent or refused over Bluetooth: fall through to the cloud.
             }
         }
+        guard AppConfig.cloudEnabled else {
+            throw CloudUnavailableError()
+        }
         return try await api.run(command)
     }
 
     private func refreshSoon() {
+        guard AppConfig.cloudEnabled else { return }
         Task {
             try? await Task.sleep(for: .seconds(8))
             await load(refresh: true)
@@ -190,4 +204,9 @@ enum StatusCache {
         encoder.dateEncodingStrategy = .iso8601
         UserDefaults.standard.set(try? encoder.encode(status), forKey: key)
     }
+}
+
+/// 纯蓝牙模式下云端不可用时的错误。
+struct CloudUnavailableError: LocalizedError {
+    var errorDescription: String? { "蓝牙未连接到车辆，且未配置云端服务。请在车辆附近重试。" }
 }
