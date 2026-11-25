@@ -324,8 +324,31 @@ final class WatchProvisioning {
                         timeOffsetMS = serverMS - Int64(Date().timeIntervalSince1970 * 1000)
                     }
                 }
-                // 2. 创建二维码
-                let data = try await unlogin(endpoint("createQR"), inner: basic())
+                // 2. 创建二维码（变体探测：国内内层字段组合未定，依次尝试并记录每个响应）
+                let ts = nowMS()
+                let variants: [[String: String]] = [
+                    // V1: 控车助手 selfTest 形状（identifier=设备标识）
+                    ["appChannel": "99", "identifier": imei, "reqTimestamp": ts],
+                    // V2: 控车助手完整字段集（sign 暂用海外算法试探）
+                    ["watchImei": imei, "reqTimestamp": ts, "identifier": imei,
+                     "identifierType": "1", "objective": "", "appChannel": "99"],
+                    // V3: 海外形状去掉国内多余字段（countryCode/language/timeZone 不发）
+                    ["watchImei": imei, "reqTimestamp": ts, "appVersion": watchAppVersion,
+                     "watchModel": watchModel, "watchBrand": watchBrand, "appChannel": "99"],
+                ]
+                var data: [String: Any]?
+                var lastErr: Error?
+                for (idx, inner) in variants.enumerated() {
+                    do {
+                        data = try await post(endpoint("createQR"), body: inner, decryptKey: countryCode)
+                        note("✓ 变体\(idx + 1) 创建成功")
+                        break
+                    } catch {
+                        lastErr = error
+                        note("变体\(idx + 1): \(error.localizedDescription)")
+                    }
+                }
+                guard let data else { throw lastErr ?? Err.badResponse("createQrCode 全部变体失败") }
                 guard let uuid = data["uuid"] as? String else { throw Err.badResponse("createQrCode 未返回 uuid") }
                 qrUUID = uuid
                 // 3. 二维码内容
