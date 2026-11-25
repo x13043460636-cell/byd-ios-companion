@@ -337,18 +337,20 @@ final class WatchProvisioning {
                      "watchModel": watchModel, "watchBrand": watchBrand, "appChannel": "99"],
                 ]
                 var data: [String: Any]?
-                var lastErr: Error?
+                var attempts: [String] = []
                 for (idx, inner) in variants.enumerated() {
                     do {
                         data = try await post(endpoint("createQR"), body: inner, decryptKey: countryCode)
                         note("✓ 变体\(idx + 1) 创建成功")
                         break
                     } catch {
-                        lastErr = error
+                        attempts.append("V\(idx + 1) \(error.localizedDescription)")
                         note("变体\(idx + 1): \(error.localizedDescription)")
                     }
                 }
-                guard let data else { throw lastErr ?? Err.badResponse("createQrCode 全部变体失败") }
+                guard let data else {
+                    throw Err.badResponse(attempts.joined(separator: " ⏐ "))
+                }
                 guard let uuid = data["uuid"] as? String else { throw Err.badResponse("createQrCode 未返回 uuid") }
                 qrUUID = uuid
                 // 3. 二维码内容

@@ -369,6 +369,13 @@ extension BluetoothSheet {
             if !provisioning.phase.isFailure && provisioning.phase != .done && !provisioning.statusText.isEmpty {
                 Text(provisioning.statusText).font(.footnote).foregroundStyle(.secondary)
             }
+            if !provisioning.log.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(provisioning.log.suffix(8).enumerated()), id: \.offset) { _, line in
+                        Text(line).font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+            }
 
             if provisioning.phase == .showingQR || provisioning.phase == .waitingApproval {
                 Button("取消", role: .destructive) { provisioning.cancel() }
