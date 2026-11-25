@@ -55,13 +55,17 @@ final class WatchProvisioning {
         Insecure.MD5.hash(data: Data(value.utf8)).map { String(format: "%02X", $0) }.joined()
     }
 
-    /// SHA-1，逐字节十六进制：偶数位大写、奇数位小写。
+    /// SHA-1，逐字节十六进制：偶数位大写、奇数位小写，再删掉第 8 位字符（40→39）。
+    /// 自检向量（kongche 二进制）：sha1Mixed("kongche-sign-string-test") = "542bE4f67dd2B793F7f148eFCb0D421B2521A3b"
     private func sha1Mixed(_ value: String) -> String {
         let digest = Insecure.SHA1.hash(data: Data(value.utf8))
-        return digest.enumerated().map { i, b in
+        var out = digest.enumerated().map { i, b in
             let hex = String(format: "%x", b)
             return i % 2 == 0 ? hex.uppercased() : hex
         }.joined()
+        guard out.count == 40 else { return out }
+        out.remove(at: out.index(out.startIndex, offsetBy: 8))
+        return out
     }
 
     private func hexBytes(_ hex: String) -> [UInt8]? {
