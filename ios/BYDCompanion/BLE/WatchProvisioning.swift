@@ -427,23 +427,30 @@ final class WatchProvisioning {
                 }
                 let kIdentifier = UserDefaults.standard.string(forKey: "watch.identifier") ?? imei
                 let manualVin = UserDefaults.standard.string(forKey: "watch.vin") ?? ""
-                let realValues: [String: String] = [
+                // 控车助手 bodyB4Info 真实字段集（逆向确认）：设备信息 + sign，单层扁平
+                let watchOsVal = "DROID"
+                let watchNameVal = "Galaxy Watch"
+                var b4Values: [String: String] = [
                     "watchImei": imei,
-                    "identifier": kIdentifier,
-                    "identifierType": "0",
-                    "objective": manualVin,
-                    "vehicleBrand": "2",
-                    "appVersion": "580",
-                    "softType": "0",
-                    "terminalType": "1",
-                    "appChannel": "99",
-                ].filter { !$0.value.isEmpty || $0.key == "objective" }
+                    "watchModel": watchModel,
+                    "watchBrand": watchBrand,
+                    "watchName": watchNameVal,
+                    "reqTimestamp": ts,
+                    "watchAppVersion": watchAppVersion,
+                    "watchOs": watchOsVal,
+                ]
+                // 哈希假设 D1：sign = SHA256(排序query) 大写 hex（64 位，符合自检期望值特征）
+                let sortedQuery = b4Values.keys.sorted().map { "\($0)=\(b4Values[$0] ?? "")" }.joined(separator: "&")
+                let sha = SHA256.hash(data: Data(sortedQuery.utf8)).map { String(format: "%02X", $0) }.joined()
+                b4Values["sign"] = sha
+                let realValues: [String: String] = b4Values
                 var data: [String: Any]?
                 var attempts: [String] = []
                 // C 系：直连信封（业务字段直接进 envelope）
                 let directBodies: [[String: String]] = [
-                    realValues,                                            // C1: 完整真实集
-                    ["identifier": kIdentifier, "reqTimestamp": ts, "appChannel": "99"],  // C2: 极简
+                    realValues,                                            // C1: bodyB4Info 真实字段集
+                    // C2: 同字段集但 sign=sha1Mixed(排序query)（哈希假设 B）
+                    { var v = b4Values; v["sign"] = sha1Mixed(v.keys.sorted().map { "\($0)=\(v[$0] ?? "")" }.joined(separator: "&")); return v }(),
                 ]
                 for (idx, body) in directBodies.enumerated() {
                     do {
