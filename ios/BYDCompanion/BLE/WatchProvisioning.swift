@@ -60,7 +60,7 @@ final class WatchProvisioning {
     private func sha1Mixed(_ value: String) -> String {
         let digest = Insecure.SHA1.hash(data: Data(value.utf8))
         var out = digest.enumerated().map { i, b in
-            let hex = String(format: "%x", b)
+            let hex = String(format: "%02x", b)
             return i % 2 == 0 ? hex.uppercased() : hex
         }.joined()
         guard out.count == 40 else { return out }
