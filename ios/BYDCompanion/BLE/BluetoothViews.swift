@@ -366,7 +366,9 @@ extension BluetoothSheet {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            Text(provisioning.statusText).font(.footnote).foregroundStyle(.secondary)
+            if !provisioning.phase.isFailure && provisioning.phase != .done && !provisioning.statusText.isEmpty {
+                Text(provisioning.statusText).font(.footnote).foregroundStyle(.secondary)
+            }
 
             if provisioning.phase == .showingQR || provisioning.phase == .waitingApproval {
                 Button("取消", role: .destructive) { provisioning.cancel() }
@@ -374,7 +376,7 @@ extension BluetoothSheet {
                 Text(reason).font(.footnote).foregroundStyle(.red)
                 Button("重新扫码配对") { startProvisioning() }
             } else if provisioning.phase == .done {
-                Text("✓ 配对成功，蓝牙钥匙已自动导入").font(.footnote).foregroundStyle(Theme.accent)
+                Text("蓝牙钥匙已保存").font(.footnote).foregroundStyle(Theme.accent)
                 Button("重新配对") { startProvisioning() }
             } else {
                 Button("开始扫码配对") { startProvisioning() }
@@ -388,7 +390,7 @@ extension BluetoothSheet {
 
     private func startProvisioning() {
         provisioning.start { key in
-            do { try link.installKey(key) } catch { }
+            try link.installKey(key)
         }
     }
 }
