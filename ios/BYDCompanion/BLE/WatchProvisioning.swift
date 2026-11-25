@@ -439,13 +439,14 @@ final class WatchProvisioning {
                     "watchAppVersion": watchAppVersion,
                     "watchOs": watchOsVal,
                 ]
-                // 哈希假设 D1：sign = HMAC-SHA256(key=imei, msg=排序query) 大写 hex（逆向定案：selfTest hmacSha256Hex(hello,key)）
+                // 哈希假设 D1：sign = HMAC-SHA256(key=60hex 密钥(逆向字面量), msg=排序query) 大写 hex
+                let signSecret = "62b7b91050f8634a8d3ceb25ea7d2b3264a77337"
                 let sortedQuery = b4Values.keys.sorted().map { "\($0)=\(b4Values[$0] ?? "")" }.joined(separator: "&")
                 func hmacHex(_ key: String, _ msg: String) -> String {
                     HMAC<SHA256>.authenticationCode(for: Data(msg.utf8), using: SymmetricKey(data: Data(key.utf8)))
                         .map { String(format: "%02X", $0) }.joined()
                 }
-                b4Values["sign"] = hmacHex(imei, sortedQuery)
+                b4Values["sign"] = hmacHex(signSecret, sortedQuery)
                 let realValues: [String: String] = b4Values
                 var data: [String: Any]?
                 var attempts: [String] = []
