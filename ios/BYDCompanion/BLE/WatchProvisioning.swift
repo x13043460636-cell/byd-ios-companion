@@ -255,7 +255,7 @@ final class WatchProvisioning {
         ]
         outer["encryData"] = encry
         outer["sign"] = sign(outer, secret: countryCode)
-        let cc = Insecure.SHA256.hash(data: Data(compactJSON(outer).utf8))
+        let cc = SHA256.hash(data: Data(compactJSON(outer).utf8))
             .map { String(format: "%02x", $0) }.joined()
         outer["checkcode"] = cc
         let envelope = try Wbsk.encryptEnvelope(compactJSON(outer))
