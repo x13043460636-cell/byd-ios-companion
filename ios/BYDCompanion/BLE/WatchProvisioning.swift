@@ -239,6 +239,96 @@ final class WatchProvisioning {
         return try await post(endpoint, body: body, decryptKey: countryCode)
     }
 
+    /// CN 三层结构：{"request": WBSK信封(外层JSON)}，外层JSON.encryData = AES(业务JSON)
+    private func buildCnRequest(business: [String: String], ts: String) throws -> String {
+        var encrySource = business
+        encrySource["reqTimestamp"] = ts
+        let encry = try aesEncryptHex(compactJSON(encrySource), keyHex: md5Hex(countryCode))
+        var outer: [String: String] = [
+            "appChannel": "99",
+            "identifier": imei,
+            "identifierType": "1",
+            "imeiMD5": md5Hex(imei),
+            "reqTimestamp": ts,
+            "targetBrand": "",
+            "vehicleBrand": "",
+        ]
+        outer["encryData"] = encry
+        outer["sign"] = sign(outer, secret: countryCode)
+        let cc = Insecure.SHA256.hash(data: Data(compactJSON(outer).utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        outer["checkcode"] = cc
+        let envelope = try Wbsk.encryptEnvelope(compactJSON(outer))
+        return compactJSON(["request": envelope])
+    }
+
+    /// 与 post 相同，但 body 已是最终字符串（跳过信封包装）
+    private func postRaw(_ endpoint: String, bodyString: String, decryptKey: String) async throws -> [String: Any] {
+        guard let url = URL(string: "\(baseURL)/\(endpoint)") else { throw Err.badResponse("URL 无效") }
+        var request = URLRequest(url: url, timeoutInterval: 20)
+        request.httpMethod = "POST"
+        request.setValue("application/json; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("okhttp/4.12.0", forHTTPHeaderField: "User-Agent")
+        request.httpBody = bodyString.data(using: .utf8)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw Err.badResponse("\(endpoint): HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+        }
+        let rawText = String(data: data, encoding: .utf8) ?? "<非文本>"
+        guard let outer = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw Err.badResponse("\(endpoint): 响应不是 JSON。原始: \(rawText.prefix(180))")
+        }
+        if let topCode = outer["code"] as? Int, topCode != 0 {
+            var detail = outer["message"] as? String ?? ""
+            if let blob = outer["response"] as? String, let inner = try? Wbsk.decryptEnvelope(blob) {
+                detail += " | 解密: \(inner.prefix(200))"
+            }
+            throw Err.badResponse("\(endpoint): 业务错误 \(topCode) \(detail)")
+        }
+        if let topCode = outer["code"] as? String, topCode != "0" {
+            throw Err.badResponse("\(endpoint): 业务错误 \(topCode) \(outer["message"] ?? "")")
+        }
+        let wrappedAny = (outer["response"] ?? outer["respondData"]) ?? "{}"
+        let envelope: [String: Any]
+        if let dict = wrappedAny as? [String: Any] {
+            envelope = dict
+        } else if let wrapped = wrappedAny as? String {
+            if let parsed = try? JSONSerialization.jsonObject(with: Data(wrapped.utf8)) as? [String: Any] {
+                envelope = parsed
+            } else {
+                let inner: String
+                do { inner = try Wbsk.decryptEnvelope(wrapped) }
+                catch { throw Err.badResponse("\(endpoint): 信封解密失败(\(error.localizedDescription))。原始: \(wrapped.prefix(120))") }
+                guard let parsed = try? JSONSerialization.jsonObject(with: Data(inner.utf8)) as? [String: Any] else {
+                    throw Err.badResponse("\(endpoint): 信封解密后不是 JSON: \(inner.prefix(200))")
+                }
+                envelope = parsed
+            }
+        } else {
+            throw Err.badResponse("\(endpoint): 响应信封类型未知。原始: \(rawText.prefix(180))")
+        }
+        if let code = envelope["code"] as? String, code != "0" {
+            throw Err.badResponse("\(endpoint): code=\(code) message=\(envelope["message"] ?? "")")
+        }
+        if let code = envelope["code"] as? Int, code != 0 {
+            throw Err.badResponse("\(endpoint): code=\(code) message=\(envelope["message"] ?? "")")
+        }
+        let payload = (envelope["respondData"] as? String) ?? (envelope["response"] as? String) ?? ""
+        guard !payload.isEmpty else { return [:] }
+        let decrypted: String
+        if let aes = try? aesDecryptString(payload, keyHex: md5Hex(decryptKey)), aes.contains("{") {
+            decrypted = aes
+        } else if let env2 = try? Wbsk.decryptEnvelope(payload) {
+            decrypted = env2
+        } else {
+            throw Err.badResponse("\(endpoint): 数据解密失败。载荷: \(payload.prefix(120))")
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: Data(decrypted.utf8)) as? [String: Any] else {
+            throw Err.badResponse("\(endpoint): 解密后数据不是 JSON: \(decrypted.prefix(200))")
+        }
+        return json
+    }
+
     private func login(_ endpoint: String, token: [String: Any], extra: [String: String]) async throws -> [String: Any] {
         let ts = nowMS()
         let encryToken = token["encryToken"] as? String ?? ""
@@ -324,27 +414,27 @@ final class WatchProvisioning {
                         timeOffsetMS = serverMS - Int64(Date().timeIntervalSince1970 * 1000)
                     }
                 }
-                // 2. 创建二维码（变体探测：国内内层字段组合未定，依次尝试并记录每个响应）
+                // 2. 创建二维码（三层结构变体探测，业务字段组合待定）
                 let ts = nowMS()
-                let variants: [[String: String]] = [
-                    // V1: 控车助手 selfTest 形状（identifier=设备标识）
-                    ["appChannel": "99", "identifier": imei, "reqTimestamp": ts],
-                    // V2: 控车助手完整字段集（sign 暂用海外算法试探）
-                    ["watchImei": imei, "reqTimestamp": ts, "identifier": imei,
-                     "identifierType": "1", "objective": "", "appChannel": "99"],
-                    // V3: 海外形状去掉国内多余字段（countryCode/language/timeZone 不发）
-                    ["watchImei": imei, "reqTimestamp": ts, "appVersion": watchAppVersion,
-                     "watchModel": watchModel, "watchBrand": watchBrand, "appChannel": "99"],
+                let businesses: [[String: String]] = [
+                    // B1: 控车助手字段集
+                    ["watchImei": imei, "identifier": imei, "appChannel": "99"],
+                    // B2: 海外 basic 形状（去掉国内不存在的字段）
+                    ["watchImei": imei, "appVersion": watchAppVersion,
+                     "watchModel": watchModel, "watchBrand": watchBrand],
+                    // B3: 最小化
+                    ["watchImei": imei],
                 ]
                 var data: [String: Any]?
                 var attempts: [String] = []
-                for (idx, inner) in variants.enumerated() {
+                for (idx, business) in businesses.enumerated() {
                     do {
-                        data = try await post(endpoint("createQR"), body: inner, decryptKey: countryCode)
+                        let bodyString = try buildCnRequest(business: business, ts: ts)
+                        data = try await postRaw(endpoint("createQR"), bodyString: bodyString, decryptKey: countryCode)
                         note("✓ 变体\(idx + 1) 创建成功")
                         break
                     } catch {
-                        attempts.append("V\(idx + 1) \(error.localizedDescription)")
+                        attempts.append("B\(idx + 1) \(error.localizedDescription)")
                         note("变体\(idx + 1): \(error.localizedDescription)")
                     }
                 }
