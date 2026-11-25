@@ -439,18 +439,21 @@ final class WatchProvisioning {
                     "watchAppVersion": watchAppVersion,
                     "watchOs": watchOsVal,
                 ]
-                // 哈希假设 D1：sign = SHA256(排序query) 大写 hex（64 位，符合自检期望值特征）
+                // 哈希假设 D1：sign = HMAC-SHA256(key=imei, msg=排序query) 大写 hex（逆向定案：selfTest hmacSha256Hex(hello,key)）
                 let sortedQuery = b4Values.keys.sorted().map { "\($0)=\(b4Values[$0] ?? "")" }.joined(separator: "&")
-                let sha = SHA256.hash(data: Data(sortedQuery.utf8)).map { String(format: "%02X", $0) }.joined()
-                b4Values["sign"] = sha
+                func hmacHex(_ key: String, _ msg: String) -> String {
+                    HMAC<SHA256>.authenticationCode(for: Data(msg.utf8), using: SymmetricKey(data: Data(key.utf8)))
+                        .map { String(format: "%02X", $0) }.joined()
+                }
+                b4Values["sign"] = hmacHex(imei, sortedQuery)
                 let realValues: [String: String] = b4Values
                 var data: [String: Any]?
                 var attempts: [String] = []
                 // C 系：直连信封（业务字段直接进 envelope）
                 let directBodies: [[String: String]] = [
-                    realValues,                                            // C1: bodyB4Info 真实字段集
-                    // C2: 同字段集但 sign=sha1Mixed(排序query)（哈希假设 B）
-                    { var v = b4Values; v["sign"] = sha1Mixed(v.keys.sorted().map { "\($0)=\(v[$0] ?? "")" }.joined(separator: "&")); return v }(),
+                    realValues,                                            // C1: HMAC(key=imei, query)
+                    { var v = b4Values; let q = v.keys.sorted().map { "\($0)=\(v[$0] ?? "")" }.joined(separator: "&"); v["sign"] = hmacHex(md5Hex(imei), q); return v }(),  // C2: HMAC(key=md5(imei))
+                    { var v = b4Values; let q = v.keys.sorted().map { "\($0)=\(v[$0] ?? "")" }.joined(separator: "&"); v["sign"] = hmacHex(countryCode, q); return v }(),  // C3: HMAC(key="CN")
                 ]
                 for (idx, body) in directBodies.enumerated() {
                     do {
