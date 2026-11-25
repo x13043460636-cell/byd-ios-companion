@@ -452,7 +452,8 @@ final class WatchProvisioning {
                 var attempts: [String] = []
                 // C 系：直连信封（业务字段直接进 envelope）
                 let directBodies: [[String: String]] = [
-                    { var v = b4Values; let q = v.keys.sorted().map { "\($0)=\(v[$0] ?? "")" }.joined(separator: "&"); v["sign"] = hmacHex("ANDROID", q); return v }(),  // C0: HMAC(key=ANDROID, query)——buildB4Sign 首参=scratch 最后字符串
+                    // C0: 定案公式 sign=HMAC(key=kv原串, msg=排序query+"&password="+kv原串)
+                    { var v = b4Values; let kvStr = v.map { "\($0.key)=\($0.value)" }.joined(separator: "&"); let q = v.keys.sorted().map { "\($0)=\(v[$0] ?? "")" }.joined(separator: "&"); v["sign"] = hmacHex(kvStr, q + "&password=" + kvStr); return v }(),
                     realValues,                                            // C1: HMAC(key=40hex, query)
                     { var v = b4Values; let q = v.keys.sorted().map { "\($0)=\(v[$0] ?? "")" }.joined(separator: "&"); v["sign"] = hmacHex(md5Hex(imei), q); return v }(),  // C2: HMAC(key=md5(imei))
                     { var v = b4Values; let q = v.keys.sorted().map { "\($0)=\(v[$0] ?? "")" }.joined(separator: "&"); v["sign"] = hmacHex(countryCode, q); return v }(),  // C3: HMAC(key="CN")
