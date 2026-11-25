@@ -323,6 +323,7 @@ struct ManualKeyEntry: View {
                 Text(installError).font(.footnote).foregroundStyle(.red)
             }
             Button("导入并连接") {
+                UserDefaults.standard.set(vin, forKey: "watch.vin")
                 let trimmed = dkey.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else {
                     installError = "dkey 不能为空"

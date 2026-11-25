@@ -414,28 +414,59 @@ final class WatchProvisioning {
                         timeOffsetMS = serverMS - Int64(Date().timeIntervalSince1970 * 1000)
                     }
                 }
-                // 2. 创建二维码（三层结构变体探测，业务字段组合待定）
+                // 2. 创建二维码（变体探测：控车助手 plist 真实会话值 + 两种封装风格）
                 let ts = nowMS()
-                let businesses: [[String: String]] = [
-                    // B1: 控车助手字段集
-                    ["watchImei": imei, "identifier": imei, "appChannel": "99"],
-                    // B2: 海外 basic 形状（去掉国内不存在的字段）
-                    ["watchImei": imei, "appVersion": watchAppVersion,
-                     "watchModel": watchModel, "watchBrand": watchBrand],
-                    // B3: 最小化
-                    ["watchImei": imei],
-                ]
+                // 控车助手 identifier = 首装时间戳自生成 ID（10 位秒 + 8 位微秒）
+                if UserDefaults.standard.string(forKey: "watch.identifier") == nil {
+                    let gen = "\(Int64(Date().timeIntervalSince1970))\(Int(Date().timeIntervalSince1970 * 1_000_000) % 100_000_000)"
+                    UserDefaults.standard.set(gen, forKey: "watch.identifier")
+                }
+                let kIdentifier = UserDefaults.standard.string(forKey: "watch.identifier") ?? imei
+                let manualVin = UserDefaults.standard.string(forKey: "watch.vin") ?? ""
+                let realValues: [String: String] = [
+                    "watchImei": imei,
+                    "identifier": kIdentifier,
+                    "identifierType": "0",
+                    "objective": manualVin,
+                    "vehicleBrand": "2",
+                    "appVersion": "580",
+                    "softType": "0",
+                    "terminalType": "1",
+                    "appChannel": "99",
+                ].filter { !$0.value.isEmpty || $0.key == "objective" }
                 var data: [String: Any]?
                 var attempts: [String] = []
-                for (idx, business) in businesses.enumerated() {
+                // C 系：直连信封（业务字段直接进 envelope）
+                let directBodies: [[String: String]] = [
+                    realValues,                                            // C1: 完整真实集
+                    ["identifier": kIdentifier, "reqTimestamp": ts, "appChannel": "99"],  // C2: 极简
+                ]
+                for (idx, body) in directBodies.enumerated() {
                     do {
-                        let bodyString = try buildCnRequest(business: business, ts: ts)
-                        data = try await postRaw(endpoint("createQR"), bodyString: bodyString, decryptKey: countryCode)
-                        note("✓ 变体\(idx + 1) 创建成功")
+                        data = try await post(endpoint("createQR"), body: body, decryptKey: countryCode)
+                        note("✓ C\(idx + 1) 创建成功")
                         break
                     } catch {
-                        attempts.append("B\(idx + 1) \(error.localizedDescription)")
-                        note("变体\(idx + 1): \(error.localizedDescription)")
+                        attempts.append("C\(idx + 1) \(error.localizedDescription)")
+                        note("C\(idx + 1): \(error.localizedDescription)")
+                    }
+                }
+                // B 系：三层封装（外层 JSON + encryData）
+                if data == nil {
+                    let threeLayer: [[String: String]] = [
+                        realValues,                                        // B4: 完整
+                        ["identifier": kIdentifier, "reqTimestamp": ts],   // B5: 极简
+                    ]
+                    for (idx, business) in threeLayer.enumerated() {
+                        do {
+                            let bodyString = try buildCnRequest(business: business, ts: ts)
+                            data = try await postRaw(endpoint("createQR"), bodyString: bodyString, decryptKey: countryCode)
+                            note("✓ B\(idx + 1) 创建成功")
+                            break
+                        } catch {
+                            attempts.append("B\(idx + 1) \(error.localizedDescription)")
+                            note("B\(idx + 1): \(error.localizedDescription)")
+                        }
                     }
                 }
                 guard let data else {
