@@ -169,8 +169,9 @@ final class WatchProvisioning {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw Err.badResponse("\(endpoint): HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
         }
+        let rawText = String(data: data, encoding: .utf8) ?? "<非文本>"
         guard let outer = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw Err.badResponse("\(endpoint): 响应不是 JSON")
+            throw Err.badResponse("\(endpoint): 响应不是 JSON。原始: \(rawText.prefix(180))")
         }
         try checkResponseCode(outer, endpoint: endpoint)
         let wrappedAny = [outer["response"], outer["respondData"]].compactMap { value -> Any? in
@@ -187,14 +188,14 @@ final class WatchProvisioning {
                 // CN WBSK 信封 → 解密
                 let inner: String
                 do { inner = try Wbsk.decryptEnvelope(wrapped) }
-                catch { throw Err.badResponse("\(endpoint): 信封解密失败") }
+                catch { throw Err.badResponse("\(endpoint): 信封解密失败(\(error.localizedDescription))。原始: \(wrapped.prefix(120))") }
                 guard let parsed = try? JSONSerialization.jsonObject(with: Data(inner.utf8)) as? [String: Any] else {
-                    throw Err.badResponse("\(endpoint): 信封解密后不是 JSON")
+                    throw Err.badResponse("\(endpoint): 信封解密后不是 JSON: \(inner.prefix(200))")
                 }
                 envelope = parsed
             }
         } else {
-            throw Err.badResponse("\(endpoint): 响应信封类型未知")
+            throw Err.badResponse("\(endpoint): 响应信封类型未知。原始: \(rawText.prefix(180))")
         }
         try checkResponseCode(envelope, endpoint: endpoint)
         let payload = (envelope["respondData"] as? String) ?? (envelope["response"] as? String) ?? ""
@@ -206,10 +207,10 @@ final class WatchProvisioning {
         } else if let env2 = try? Wbsk.decryptEnvelope(payload) {
             decrypted = env2
         } else {
-            throw Err.badResponse("\(endpoint): 数据解密失败")
+            throw Err.badResponse("\(endpoint): 数据解密失败。载荷: \(payload.prefix(120))")
         }
         guard let json = try? JSONSerialization.jsonObject(with: Data(decrypted.utf8)) as? [String: Any] else {
-            throw Err.badResponse("\(endpoint): 解密后数据不是 JSON")
+            throw Err.badResponse("\(endpoint): 解密后数据不是 JSON: \(decrypted.prefix(200))")
         }
         return json
     }
@@ -217,7 +218,12 @@ final class WatchProvisioning {
     private func checkResponseCode(_ object: [String: Any], endpoint: String) throws {
         let code = (object["code"] as? String) ?? (object["code"] as? Int).map { String($0) }
         guard let code, code != "0" else { return }
-        throw Err.badResponse("\(endpoint): 业务错误 \(code)")
+        var detail = (object["message"] as? String) ?? ""
+        if let blob = (object["response"] ?? object["respondData"]) as? String,
+           let inner = try? Wbsk.decryptEnvelope(blob) {
+            detail += " | 解密: \(inner.prefix(200))"
+        }
+        throw Err.badResponse("\(endpoint): 业务错误 \(code) \(detail)")
     }
 
     private func unlogin(_ endpoint: String, inner: [String: String]) async throws -> [String: Any] {

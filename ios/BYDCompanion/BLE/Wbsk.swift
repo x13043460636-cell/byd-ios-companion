@@ -284,9 +284,10 @@ enum Wbsk {
     }
 
     // MARK: - 工具
+    /// JS/Python 参考: readUInt32LE 小端读表，再按 (w>>24) 先吐字节 —— 等效于取表内 4 字节的反序
     static func wordBE(_ table: [UInt8], _ index: Int) -> UInt32 {
         let o = index * 4
-        return UInt32(table[o]) << 24 | UInt32(table[o + 1]) << 16 | UInt32(table[o + 2]) << 8 | UInt32(table[o + 3])
+        return UInt32(table[o]) | UInt32(table[o + 1]) << 8 | UInt32(table[o + 2]) << 16 | UInt32(table[o + 3]) << 24
     }
 
     static func hexDecode(_ s: String) -> [UInt8] {
